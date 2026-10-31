@@ -1,0 +1,67 @@
+import type { ActionResult, AppState, NewItemInput, Settings, UpdateState } from './types'
+
+/**
+ * preload 通过 contextBridge 暴露给渲染层的全部能力。
+ * 单独抽到 shared 里，是为了让 preload 的实现和渲染层的调用共用同一份签名 ——
+ * 两边各写一次类型，迟早会有一边忘了改。
+ */
+export interface DeskboxApi {
+  getState(): Promise<AppState>
+
+  addItem(input: NewItemInput): Promise<ActionResult>
+  addPaths(paths: string[], groupId?: string): Promise<ActionResult>
+  updateItem(id: string, patch: Record<string, unknown>): Promise<ActionResult>
+  removeItem(id: string): Promise<ActionResult>
+
+  openItem(id: string): Promise<ActionResult>
+  revealItem(id: string): Promise<ActionResult>
+  copyItem(id: string): Promise<ActionResult>
+
+  /** 弹出原生右键菜单；无返回值，菜单走主进程 */
+  showItemMenu(id: string): void
+  /** 把条目拖到资源管理器 / 其他程序。只在 dragstart 里同步调用有效 */
+  startDrag(id: string): void
+
+  addGroup(name: string): Promise<ActionResult>
+  renameGroup(id: string, name: string): Promise<ActionResult>
+  removeGroup(id: string): Promise<ActionResult>
+
+  patchSettings(patch: Partial<Settings>): Promise<ActionResult>
+
+  pickFiles(): Promise<ActionResult>
+  pickFolder(): Promise<ActionResult>
+
+  readClipboard(): Promise<string>
+  openExternal(url: string): Promise<ActionResult>
+
+  exportData(): Promise<ActionResult>
+  importData(): Promise<ActionResult>
+
+  hideWindow(): Promise<void>
+  togglePin(): Promise<ActionResult>
+
+  /**
+   * Electron 32 起 File.path 被移除，取真实路径只能走 webUtils.getPathForFile。
+   * 参数用 unknown 是为了不让 shared 依赖 DOM 的 File 类型。
+   */
+  getPathForFile(file: unknown): string
+
+  /** 订阅主进程推送的状态变更，返回取消订阅函数 */
+  onStateChanged(callback: (state: AppState) => void): () => void
+
+  /**
+   * 快捷方式 / 可执行文件的「系统原图标」，PNG data URL。
+   * 不适用（普通文件）或取不到时为 null，界面回退到自绘矢量图。
+   */
+  getItemIcon(id: string): Promise<string | null>
+
+  /* ------------------------------------------------------------ 更新 */
+
+  getUpdate(): Promise<UpdateState>
+  checkUpdate(): Promise<UpdateState>
+  downloadUpdate(): Promise<UpdateState>
+  installUpdate(): Promise<void>
+  openUpdatePage(): Promise<void>
+  /** 主进程检查/下载过程中会推状态，返回取消订阅函数 */
+  onUpdateChanged(callback: (state: UpdateState) => void): () => void
+}

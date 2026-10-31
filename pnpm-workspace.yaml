@@ -1,0 +1,18 @@
+# pnpm 10 起，允许跑安装脚本的白名单只认这里，不再读 package.json 的
+# pnpm.onlyBuiltDependencies（pnpm 11 会直接忽略并警告）。
+#
+#   electron            不跑 postinstall 就拿不到二进制，node_modules/electron/dist 是空的
+#   esbuild             vite 的转译器，缺了构建直接失败
+#   electron-builder / electron-winstaller   打包链路
+allowBuilds:
+  electron: true
+  esbuild: true
+  electron-builder: true
+  electron-winstaller: true
+
+# electron-builder 26.x 解包 electron 时会读 @electron/get 的 ElectronDownloadCacheMode，
+# 但这个枚举是 3.1.0 才加的；lockfile 里锁在 3.0.0 就报
+# 「Cannot read properties of undefined (reading 'ReadWrite')」，打包直接死在 unpack 那步。
+# 只钉 app-builder-lib 这一层：electron 包自己的 @electron/get@5 不能动，那个是下二进制用的。
+overrides:
+  app-builder-lib>@electron/get: 3.1.0
