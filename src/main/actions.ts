@@ -3,7 +3,7 @@ import type { MenuItemConstructorOptions, NativeImage } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, dirname, extname, join } from 'node:path'
+import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { AppState, Item, ItemView, NewItemInput, Settings } from '../shared/types'
 import { clampOpacity, THEME_IDS } from '../shared/defaults'
 import { hasRealIcon } from '../shared/icons'
@@ -13,6 +13,7 @@ import { appIconPath } from './paths'
 import { getData, replaceData, save } from './store'
 import { applyUpdateSettings } from './updater'
 import { applyAlwaysOnTop, getWindow, lockAutoHide } from './window'
+import { extractIcon } from './win-icon'
 
 /* ------------------------------------------------------------------ 状态构建 */
 
@@ -545,24 +546,65 @@ const ICON_CACHE_LIMIT = 300
 const iconCache = new Map<string, string | null>()
 
 /**
+ * 卡片上图标实际渲染的边长。
+ * .tile__visual 是 34px（紧凑模式 27px），2x 屏要 68px 才够清晰，
+ * 取 64 兼顾清晰度与 data URL 体积（256×256 原图直接塞会又大又糊）。
+ */
+const ICON_SIZE = 64
+
+/**
  * 取图标前先算出「该问谁要图标」。
  *
  * 快捷方式是这里的坑：直接 app.getFileIcon('xxx.lnk') 拿到的是系统画的
  * 「白纸 + 蓝箭头」占位图，两个不同的快捷方式长得一模一样，等于没有信息。
  * 必须先用 shell.readShortcutLink 解析出它指向的程序（或它自定义的图标文件）再取。
+ *
+ * 光有路径还不够，索引也得带上：桌面图标是 (IconLocation 文件, 索引) 这一对决定的，
+ * 比如夸克网盘是 quark.exe 的第 8 个图标。只取路径会把索引丢掉，取到的就是第 0 个。
  */
-function iconSource(target: string, ext: string): string {
-  if (ext !== 'lnk') return target
+interface IconSource {
+  file: string
+  index: number
+}
+
+/**
+ * Electron 的 readShortcutLink 把 IconLocation 拆成了两个字段：
+ * `icon` 只有路径（"shell32.dll"），索引单独在 `iconIndex`。
+ * 但老版本/手工写的快捷方式偶尔把 ",14" 塞在 icon 里，所以两种都要认。
+ */
+function splitIconLocation(value: unknown, index: unknown): { file: string; index: number } {
+  const numeric = typeof index === 'number' && Number.isFinite(index) ? index : 0
+  if (typeof value !== 'string' || !value.trim()) return { file: '', index: numeric }
+  const match = value.match(/^(.*?)(?:,\s*(-?\d+))\s*$/)
+  if (!match) return { file: value.trim(), index: numeric }
+  // icon 自带索引时以它为准（iconIndex 此时通常是 0，是 Electron 的默认值）
+  return { file: match[1].trim(), index: Number.parseInt(match[2], 10) || 0 }
+}
+
+/**
+ * 相对路径的 IconLocation（典型是 "shell32.dll,14"）要按 System32 解析，
+ * 这是资源管理器自己的规则；直接 existsSync('shell32.dll') 永远为假。
+ */
+function absoluteIconPath(file: string): string {
+  if (!file) return ''
+  if (isAbsolute(file)) return file
+  const system32 = join(process.env.SystemRoot || 'C:\\Windows', 'System32', file)
+  return existsSync(system32) ? system32 : file
+}
+
+function iconSource(target: string, ext: string): IconSource {
+  if (ext !== 'lnk') return { file: target, index: 0 }
   try {
     const link = shell.readShortcutLink(target)
-    // icon 可能带 ",0" 这样的索引后缀，getFileIcon 不认，去掉
-    const custom = typeof link.icon === 'string' ? link.icon.replace(/,\s*-?\d+$/, '') : ''
-    if (custom && existsSync(custom)) return custom
-    if (link.target && existsSync(link.target)) return link.target
+    const custom = splitIconLocation(link.icon, link.iconIndex)
+    const customFile = absoluteIconPath(custom.file)
+    if (customFile && existsSync(customFile)) return { file: customFile, index: custom.index }
+    // 快捷方式没设图标 → 资源管理器就用目标程序自己的第 0 个图标
+    if (link.target && existsSync(link.target)) return { file: link.target, index: 0 }
   } catch {
     /* 快捷方式损坏或没有权限，退回问它自己 */
   }
-  return target
+  return { file: target, index: 0 }
 }
 
 /**
@@ -639,23 +681,36 @@ export async function getItemIcon(id: string): Promise<string | null> {
 
   try {
     const source = iconSource(item.target, ext)
-    // large = 48×48（exe 有的话）；.ico 直接按图片读，别再问 shell
-    let image =
-      ext === 'ico'
-        ? nativeImage.createFromPath(source)
-        : await app.getFileIcon(source, { size: 'large' })
+
+    // 首选：自己按 (文件, 索引) 提取，和资源管理器一致（含 PNG 帧的 exe、自定义 .ico 都能取对）
+    // .dll 例外：shell32.dll / imageres.dll 这类系统资源库没有 ICON 资源，图标由系统内部映射，
+    // 只能交给 shell（虽然拿不到指定索引，但总比空白强）
+    let image = /\.dll$/i.test(source.file) ? null : extractIcon(source.file, source.index, ICON_SIZE)
+
+    // 自己解析不出来（系统 DLL / 少见格式 / 资源损坏）才退回 shell
+    if (!image || image.isEmpty()) {
+      image =
+        ext === 'ico'
+          ? nativeImage.createFromPath(source.file)
+          : await app.getFileIcon(source.file, { size: 'large' })
+    }
 
     // 取到的和系统那张通用占位图一模一样 → 等于没图标，试试同目录的 ico
     if (!image.isEmpty()) {
       const generic = await genericHash()
       if (generic !== null && digest(image) === generic) {
-        const fallback = siblingIcon(source)
+        const fallback = siblingIcon(source.file)
         const custom = fallback ? nativeImage.createFromPath(fallback) : null
         if (custom && !custom.isEmpty()) {
           // 品牌 ico 常常是 256×256，缩到 64 够 2x 屏，也免得 data URL 太大
           image = custom.resize({ width: 64, height: 64, quality: 'best' })
         }
       }
+    }
+
+    // 统一成卡片用的尺寸：图标可能是 256×256，直接塞 data URL 又大又糊
+    if (!image.isEmpty() && image.getSize().width > ICON_SIZE) {
+      image = image.resize({ width: ICON_SIZE, height: ICON_SIZE, quality: 'best' })
     }
 
     const url = image.isEmpty() ? null : image.toDataURL()

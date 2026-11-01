@@ -3,6 +3,7 @@ out/
 release/
 dist/
 .tmp-test/
+.tmp/
 *.tsbuildinfo
 .DS_Store
 
