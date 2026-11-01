@@ -77,21 +77,31 @@ export function normalizeData(raw: unknown): AppData {
   const items = Array.isArray(data.items)
     ? data.items
         .filter((it) => it && typeof it.id === 'string' && typeof it.target === 'string')
-        .map((it) => ({
-          id: it.id,
-          kind: (['file', 'folder', 'link', 'text'] as const).includes(it.kind as never)
-            ? it.kind
-            : ('text' as const),
-          title: typeof it.title === 'string' ? it.title : '',
-          target: it.target,
-          // 分组被删掉的项落到第一个分组，避免变成孤儿
-          groupId: groupIds.has(it.groupId) ? it.groupId : groups[0].id,
-          note: typeof it.note === 'string' ? it.note : '',
-          pinned: it.pinned === true,
-          createdAt: typeof it.createdAt === 'number' ? it.createdAt : Date.now(),
-          lastOpenedAt: typeof it.lastOpenedAt === 'number' ? it.lastOpenedAt : 0,
-          openCount: typeof it.openCount === 'number' ? it.openCount : 0
-        }))
+        .map((it) => {
+          const target = it.target
+          let title = typeof it.title === 'string' ? it.title : ''
+          // 老数据里快捷方式的标题是「xxx.lnk」。只在标题确实是自动生成的那个
+          // 文件名时才截掉后缀 —— 用户手动改过的名字一律不动。
+          const file = target.split(/[\\/]/).pop() ?? ''
+          if (/\.lnk$/i.test(file) && (title === '' || title === file)) {
+            title = file.slice(0, -4)
+          }
+          return {
+            id: it.id,
+            kind: (['file', 'folder', 'link', 'text'] as const).includes(it.kind as never)
+              ? it.kind
+              : ('text' as const),
+            title,
+            target,
+            // 分组被删掉的项落到第一个分组，避免变成孤儿
+            groupId: groupIds.has(it.groupId) ? it.groupId : groups[0].id,
+            note: typeof it.note === 'string' ? it.note : '',
+            pinned: it.pinned === true,
+            createdAt: typeof it.createdAt === 'number' ? it.createdAt : Date.now(),
+            lastOpenedAt: typeof it.lastOpenedAt === 'number' ? it.lastOpenedAt : 0,
+            openCount: typeof it.openCount === 'number' ? it.openCount : 0
+          }
+        })
     : []
 
   const settings: Settings = {

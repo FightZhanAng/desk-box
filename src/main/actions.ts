@@ -62,13 +62,25 @@ export function findItem(id: string): Item | undefined {
 
 /* ------------------------------------------------------------------ 新增 */
 
+/**
+ * 展示用的文件名。
+ *
+ * 快捷方式去掉 `.lnk`：桌面上本来就不显示这个后缀，盒子里再挂一串
+ * 「夸克网盘.lnk」既啰嗦又像个原始文件名。其他扩展名（.md / .pdf …）保留，
+ * 那是用户判断文件类型的依据，不该藏。
+ */
+function displayName(target: string): string {
+  const name = basename(target) || target
+  return /\.lnk$/i.test(name) ? name.slice(0, -4) : name
+}
+
 function defaultTitle(kind: Item['kind'], target: string): string {
   if (kind === 'text') {
     const firstLine = target.split('\n')[0].trim()
     return firstLine.length > 24 ? `${firstLine.slice(0, 24)}…` : firstLine || '未命名片段'
   }
   if (kind === 'link') return hostOf(target) || target
-  return basename(target) || target
+  return displayName(target)
 }
 
 export interface AddPathsOutcome {
@@ -114,7 +126,7 @@ export function addPaths(paths: string[], groupId?: string): AddPathsOutcome {
     data.items.push({
       id: randomUUID(),
       kind,
-      title: basename(target) || target,
+      title: displayName(target),
       target,
       groupId: targetGroup,
       note: '',
