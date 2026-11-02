@@ -17,8 +17,21 @@ export interface DeskboxApi {
   revealItem(id: string): Promise<ActionResult>
   copyItem(id: string): Promise<ActionResult>
 
+  /**
+   * 批量改一组条目（固定 / 移动分组）。
+   * 走一次 IPC、一次落盘、一次状态推送 —— 逐条调用在选中二三十项时
+   * 会让界面闪很多次，也白白多写几十次磁盘。
+   */
+  updateItems(ids: string[], patch: Record<string, unknown>): Promise<ActionResult>
+  /** 批量从收纳盒移除记录（同样不动磁盘上的原文件） */
+  removeItems(ids: string[]): Promise<ActionResult>
+  /** 批量打开：文件/文件夹走系统默认程序，链接走浏览器，文本片段跳过 */
+  openItems(ids: string[]): Promise<ActionResult>
+
   /** 弹出原生右键菜单；无返回值，菜单走主进程 */
   showItemMenu(id: string): void
+  /** 多选状态下的右键菜单：菜单项作用于整组，单条时主进程会自动退回单条菜单 */
+  showBatchMenu(ids: string[]): void
   /** 把条目拖到资源管理器 / 其他程序。只在 dragstart 里同步调用有效 */
   startDrag(id: string): void
 

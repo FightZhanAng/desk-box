@@ -17,8 +17,17 @@ const api: DeskboxApi = {
   revealItem: (id: string) => ipcRenderer.invoke(IPC.itemReveal, id) as Promise<ActionResult>,
   copyItem: (id: string) => ipcRenderer.invoke(IPC.itemCopy, id) as Promise<ActionResult>,
 
+  updateItems: (ids: string[], patch: Record<string, unknown>) =>
+    ipcRenderer.invoke(IPC.itemUpdateMany, ids, patch) as Promise<ActionResult>,
+  removeItems: (ids: string[]) =>
+    ipcRenderer.invoke(IPC.itemRemoveMany, ids) as Promise<ActionResult>,
+  openItems: (ids: string[]) => ipcRenderer.invoke(IPC.itemOpenMany, ids) as Promise<ActionResult>,
+
   showItemMenu: (id: string) => {
     ipcRenderer.send(IPC.itemMenu, id)
+  },
+  showBatchMenu: (ids: string[]) => {
+    ipcRenderer.send(IPC.itemMenuMany, ids)
   },
   startDrag: (id: string) => {
     ipcRenderer.send(IPC.itemDrag, id)

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, DragEvent } from 'react'
+import type { CSSProperties, DragEvent, MouseEvent as ReactMouseEvent } from 'react'
 import type { ActionResult, AppState, Settings, UpdateAction, UpdateState } from '@shared/types'
 import { looksLikeUrl } from '@shared/url'
 import { AddSheet } from './components/AddSheet'
@@ -9,7 +9,9 @@ import { EmptyState } from './components/EmptyState'
 import { GroupTabs } from './components/GroupTabs'
 import { ItemGrid } from './components/ItemGrid'
 import { SearchBar } from './components/SearchBar'
+import { SelectionBar } from './components/SelectionBar'
 import { SettingsPanel } from './components/SettingsPanel'
+import { TextPeek } from './components/TextPeek'
 import { TitleBar } from './components/TitleBar'
 
 type SheetMode = 'none' | 'link' | 'text'
@@ -26,7 +28,9 @@ export default function App() {
   const [query, setQuery] = useState('')
   const [sheet, setSheet] = useState<SheetMode>('none')
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // 多选集合：单选就是长度为 1 的集合。anchor 是 Shift 连选的起点
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const anchorId = useRef<string | null>(null)
   const [toast, setToast] = useState<ToastState | null>(null)
   const [dragging, setDragging] = useState(false)
   // 拖滑块时的临时透明度。落盘是异步的，中间这几毫秒如果直接读 settings
@@ -118,6 +122,18 @@ export default function App() {
     })
   }, [allItems, activeGroup, query])
 
+  // 选中集合里可能有已经被删掉、或者被搜索/切分组挡在视口外的条目，
+  // 批量操作只该作用在「当前看得见的那些」—— 否则用户会删掉自己没看见的东西
+  const selectedVisible = useMemo(() => {
+    const visibleIds = new Set(visible.map((item) => item.id))
+    return selectedIds.filter((id) => visibleIds.has(id))
+  }, [selectedIds, visible])
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds([])
+    anchorId.current = null
+  }, [])
+
   const counts = useMemo(() => {
     const map = new Map<string, number>()
     allItems?.forEach((item) => {
@@ -142,10 +158,124 @@ export default function App() {
     [run]
   )
 
-  const showItemMenu = useCallback((id: string) => {
-    setSelectedId(id)
-    window.deskbox.showItemMenu(id)
-  }, [])
+  /**
+   * Ctrl/Shift 点击多选。
+   *
+   * 普通单击不再选中：一来收纳盒不是文件管理器，「点一下就进入选择态」
+   * 太容易误触发；二来单选的所有动作都挂在右键菜单上，右键本身就会把
+   * 这张卡片选上，单击选中没有独立价值。双击才是打开/预览。
+   */
+  const selectItem = useCallback(
+    (id: string, event: ReactMouseEvent) => {
+      const additive = event.ctrlKey || event.metaKey
+      const ranged = event.shiftKey
+
+      if (!additive && !ranged) return
+
+      if (ranged) {
+        const from = anchorId.current ?? id
+        const start = visible.findIndex((item) => item.id === from)
+        const end = visible.findIndex((item) => item.id === id)
+        if (start < 0 || end < 0) {
+          setSelectedIds([id])
+          anchorId.current = id
+          return
+        }
+        const [lo, hi] = start <= end ? [start, end] : [end, start]
+        const range = visible.slice(lo, hi + 1).map((item) => item.id)
+        setSelectedIds((prev) => (additive ? [...new Set([...prev, ...range])] : range))
+        return
+      }
+
+      if (additive) {
+        setSelectedIds((prev) => {
+          if (prev.includes(id)) {
+            const next = prev.filter((entry) => entry !== id)
+            // 反选掉锚点本身时，把锚点挪到剩下的最后一个，免得 Shift 连选从虚空开始
+            if (anchorId.current === id) anchorId.current = next[next.length - 1] ?? null
+            return next
+          }
+          anchorId.current = id
+          return [...prev, id]
+        })
+        return
+      }
+
+      anchorId.current = id
+      setSelectedIds([id])
+    },
+    [visible]
+  )
+
+  /** 右键：点在选中集合里就作用于整组，点在集合外则先选中这一张 */
+  const showItemMenu = useCallback(
+    (id: string) => {
+      const batch = selectedVisible.includes(id) && selectedVisible.length > 1
+      if (!batch) {
+        setSelectedIds([id])
+        anchorId.current = id
+        window.deskbox.showItemMenu(id)
+        return
+      }
+      window.deskbox.showBatchMenu(selectedVisible)
+    },
+    [selectedVisible]
+  )
+
+  /** 双击片段 → 只读预览弹窗；看完再决定要不要复制 */
+  const [peekId, setPeekId] = useState<string | null>(null)
+  const peekItem = useMemo(
+    () => (peekId ? (allItems?.find((item) => item.id === peekId) ?? null) : null),
+    [allItems, peekId]
+  )
+  const closePeek = useCallback(() => setPeekId(null), [])
+  const copyPeek = useCallback(
+    (text: string) => {
+      navigator.clipboard
+        .writeText(text)
+        .then(() => {
+          toastSeq.current += 1
+          setToast({ text: '片段已复制到剪贴板', tone: 'ok', seq: toastSeq.current })
+        })
+        .catch(() => {
+          toastSeq.current += 1
+          setToast({ text: '复制没成功，请手动全选复制', tone: 'warn', seq: toastSeq.current })
+        })
+    },
+    []
+  )
+
+  const openSelected = useCallback(() => {
+    if (selectedVisible.length === 0) return
+    void run(() => window.deskbox.openItems(selectedVisible))
+  }, [run, selectedVisible])
+
+  const removeSelected = useCallback(() => {
+    if (selectedVisible.length === 0) return
+    const ids = selectedVisible
+    void run(async () => {
+      const result = await window.deskbox.removeItems(ids)
+      // 主进程那边会弹确认框；取消时条目还在，选中状态也该留着
+      if (result.ok && !result.cancelled) clearSelection()
+      return result
+    })
+  }, [clearSelection, run, selectedVisible])
+
+  const pinSelected = useCallback(
+    (pinned: boolean) => {
+      if (selectedVisible.length === 0) return
+      void run(() => window.deskbox.updateItems(selectedVisible, { pinned }))
+    },
+    [run, selectedVisible]
+  )
+
+  const moveSelected = useCallback(
+    (target: string) => {
+      if (selectedVisible.length === 0) return
+      void run(() => window.deskbox.updateItems(selectedVisible, { groupId: target }))
+    },
+    [run, selectedVisible]
+  )
 
   const hideWindow = useCallback(() => {
     void window.deskbox.hideWindow()
@@ -257,7 +387,7 @@ export default function App() {
           setSheet('none')
           return
         }
-        setSelectedId(null)
+        clearSelection()
       }
 
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'f') {
@@ -265,11 +395,30 @@ export default function App() {
         searchRef.current?.focus()
         searchRef.current?.select()
       }
+
+      // 下面两个快捷键只在「没在输入」时生效：搜索框里 Ctrl+A 是全选文字，
+      // Delete 是删字符，被抢走会让人以为输入框坏了
+      const target = event.target as HTMLElement | null
+      const typing =
+        target?.tagName === 'INPUT' || target?.tagName === 'TEXTAREA' || target?.isContentEditable === true
+      if (typing) return
+
+      // Ctrl+A 选中当前视图里的全部条目（单击不再选中，这是键盘进选择态的入口）
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'a' && visible.length > 0) {
+        event.preventDefault()
+        setSelectedIds(visible.map((item) => item.id))
+        return
+      }
+
+      if (event.key === 'Delete' && selectedVisible.length > 0) {
+        event.preventDefault()
+        removeSelected()
+      }
     }
 
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
-  }, [settingsOpen, sheet])
+  }, [clearSelection, removeSelected, selectedVisible, settingsOpen, sheet, visible])
 
   /* ---------------------------------------------------------------- 渲染 */
 
@@ -340,7 +489,7 @@ export default function App() {
             active={activeGroup}
             onSelect={(id) => {
               setGroupId(id)
-              setSelectedId(null)
+              clearSelection()
             }}
             onAdd={(name) => void run(() => window.deskbox.addGroup(name))}
             onRename={(id, name) => void run(() => window.deskbox.renameGroup(id, name))}
@@ -355,7 +504,7 @@ export default function App() {
           <div
             className="board"
             onClick={(event) => {
-              if (event.target === event.currentTarget) setSelectedId(null)
+              if (event.target === event.currentTarget) clearSelection()
             }}
           >
             {visible.length === 0 ? (
@@ -370,9 +519,10 @@ export default function App() {
               <ItemGrid
                 items={visible}
                 compact={state.settings.density === 'compact'}
-                selectedId={selectedId}
-                onSelect={setSelectedId}
+                selectedIds={new Set(selectedVisible)}
+                onSelect={selectItem}
                 onOpen={openItem}
+                onPreview={setPeekId}
                 onMenu={showItemMenu}
                 onDragBegin={() => {
                   internalDrag.current = true
@@ -383,6 +533,24 @@ export default function App() {
               />
             )}
           </div>
+
+          {selectedVisible.length > 0 && (
+            <SelectionBar
+              count={selectedVisible.length}
+              total={visible.length}
+              groups={groups}
+              groupId={activeGroup}
+              pinned={selectedVisible.every(
+                (id) => state.items.find((item) => item.id === id)?.pinned === true
+              )}
+              onOpen={openSelected}
+              onPin={pinSelected}
+              onMove={moveSelected}
+              onRemove={removeSelected}
+              onSelectAll={() => setSelectedIds(visible.map((item) => item.id))}
+              onClear={clearSelection}
+            />
+          )}
 
           <Dock
             total={state.items.length}
@@ -415,6 +583,10 @@ export default function App() {
             void run(() => window.deskbox.addItem({ kind, target: value, groupId: target }))
           }}
         />
+      )}
+
+      {peekItem && (
+        <TextPeek content={peekItem.target} onCopy={copyPeek} onClose={closePeek} />
       )}
 
       {toast && (

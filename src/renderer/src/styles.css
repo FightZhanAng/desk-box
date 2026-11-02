@@ -441,13 +441,69 @@ textarea {
   align-items: center;
   gap: 6px;
   padding: 9px 12px 3px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
+  overflow: hidden;
 }
 
-.groups::-webkit-scrollbar {
-  display: none;
+/* 被收进「更多」的胶囊：移出排版但保留可测量性（GroupTabs 靠 offsetWidth 重算） */
+.group-pill.is-hidden {
+  position: absolute;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* nav 自身不是定位上下文，绝对定位的隐藏胶囊会往外找 —— 壳是圆角裁切的，
+   透明胶囊贴着顶部不会露出来，但把 nav 提为定位上下文更稳 */
+.groups {
+  position: relative;
+}
+
+.group-more {
+  flex: none;
+  display: inline-flex;
+}
+
+/* 胶囊内部不用 flex 排：flex 的基线行是顶对齐起算的，文字会被顶到胶囊上半截。
+   保持 button 默认的行内布局，跟普通胶囊完全一致；小箭头用 vertical-align 微调 */
+.group-more__caret {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-left: 3px;
+  vertical-align: -1px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  opacity: 0.75;
+}
+
+/* 优先级压过下方 .ctx button 的 display: block，左右布局才成立 */
+.ctx button.group-menu__item,
+.group-menu button.group-menu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.group-menu .ctx__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.group-menu .ctx__count {
+  flex: none;
+  font-size: 10px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.group-menu button.is-current {
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+  font-weight: 600;
 }
 
 .group-pill {
@@ -1600,7 +1656,307 @@ textarea {
   background: var(--warn-soft);
 }
 
+/* ------------------------------------------------------------------ 批量选择 */
+
+/* 选中角标：右下角一个对勾圆点，比整卡换色更容易在密集网格里扫到 */
+.tile__check {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 1px 3px rgba(var(--shadow), 0.35);
+}
+
+.tile__check::after {
+  content: '';
+  position: absolute;
+  left: 3.5px;
+  top: 3px;
+  width: 5px;
+  height: 6.5px;
+  border-right: 1.5px solid var(--on-accent);
+  border-bottom: 1.5px solid var(--on-accent);
+  transform: rotate(42deg);
+}
+
+.selectbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 8px 0 12px;
+  border-top: 1px solid var(--line);
+  background: var(--solid);
+  box-shadow: 0 -10px 24px -18px rgba(var(--shadow), 0.5);
+  animation: slide-up 0.16s cubic-bezier(0.22, 0.8, 0.36, 1);
+}
+
+.selectbar__count {
+  flex: none;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--accent-deep);
+  font-variant-numeric: tabular-nums;
+}
+
+.selectbar__actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.selectbar__btn {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  font-size: 11.5px;
+  color: var(--ink-2);
+  white-space: nowrap;
+  transition:
+    background-color 0.14s ease,
+    color 0.14s ease;
+}
+
+.selectbar__btn:hover {
+  background: var(--hair);
+  color: var(--ink);
+}
+
+.selectbar__btn.is-danger {
+  color: var(--warn);
+}
+
+.selectbar__btn.is-danger:hover {
+  background: var(--warn-soft);
+}
+
+/* 「移动」的子菜单：hover 展开，比再弹一层原生菜单轻，也不会被失焦收起 */
+.selectbar__menu {
+  position: relative;
+}
+
+.selectbar__menu-list {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  z-index: 70;
+  display: none;
+  min-width: 108px;
+  padding: 4px;
+  border-radius: 9px;
+  background: var(--solid);
+  border: 1px solid var(--line-strong);
+  box-shadow: 0 10px 26px -10px rgba(var(--shadow), 0.42);
+}
+
+.selectbar__menu:hover .selectbar__menu-list,
+.selectbar__menu-list:hover {
+  display: block;
+}
+
+.selectbar__menu-list button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 6px 9px;
+  border-radius: 6px;
+  font-size: 11.5px;
+  color: var(--ink);
+}
+
+.selectbar__menu-list button:hover {
+  background: var(--hair);
+}
+
+.selectbar__link {
+  flex: none;
+  font-size: 11px;
+  color: var(--ink-3);
+  padding: 0 4px;
+}
+
+.selectbar__link:hover {
+  color: var(--accent-deep);
+}
+
+.selectbar__close {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  color: var(--ink-3);
+}
+
+.selectbar__close:hover {
+  color: var(--ink);
+  background: var(--hair);
+}
+
+.selectbar__close svg {
+  width: 11px;
+  height: 11px;
+}
+
 /* ------------------------------------------------------------------ 提示条 */
+
+/* 指向文件夹的快捷方式：左下角压一枚「捷径」小圆徽（箭头角标是 Windows 用户
+   本来就认识的快捷方式语言，这里用纸面底 + 强调色箭头把它纳入这套主题） */
+.glyph__badge {
+  fill: var(--solid);
+  stroke: var(--line-strong);
+  stroke-width: 0.8;
+}
+
+.glyph__badge-arrow {
+  fill: none;
+  stroke: var(--accent-deep);
+  stroke-width: 1.7;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ------------------------------------------------------------------ 片段预览 */
+
+.peek__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 55;
+  display: grid;
+  place-items: center;
+  padding: 26px;
+  background: var(--scrim);
+  animation: fade-in 0.12s ease;
+}
+
+.peek {
+  display: flex;
+  flex-direction: column;
+  width: min(420px, 100%);
+  max-height: 100%;
+  border-radius: var(--radius-lg);
+  background: var(--solid);
+  border: 1px solid var(--edge);
+  box-shadow: 0 24px 48px -20px rgba(var(--shadow), 0.55);
+  overflow: hidden;
+  animation: slide-up 0.18s cubic-bezier(0.22, 0.8, 0.36, 1);
+}
+
+.peek__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 13px 14px 9px;
+}
+
+.peek__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--ink);
+}
+
+.peek__count {
+  flex: 1;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.peek__close {
+  align-self: center;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.peek__close:hover {
+  background: var(--surface-2);
+  color: var(--ink);
+}
+
+.peek__close:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1px;
+}
+
+.peek__close svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+}
+
+.peek__body {
+  flex: 1;
+  margin: 0 14px;
+  padding: 11px 12px;
+  overflow: auto;
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  border: 1px solid var(--hair-2);
+  font-family: 'Georgia', ui-serif, 'Times New Roman', serif;
+  font-size: 13px;
+  line-height: 1.75;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overscroll-behavior: contain;
+  color: var(--ink);
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: auto;
+}
+
+.peek__body:focus {
+  outline: none;
+  border-color: var(--accent-line);
+}
+
+.peek__foot {
+  display: flex;
+  justify-content: flex-end;
+  padding: 11px 14px 13px;
+}
+
+.peek__copy {
+  padding: 7px 16px;
+  border: none;
+  border-radius: 9px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+}
+
+.peek__copy:hover {
+  background: var(--accent-deep);
+}
+
+.peek__copy:active {
+  transform: translateY(0.5px);
+}
+
+.peek__copy:focus-visible {
+  outline: 2px solid var(--accent-ring);
+  outline-offset: 1.5px;
+}
 
 .toast {
   position: absolute;

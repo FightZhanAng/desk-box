@@ -4,7 +4,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
-import type { AppState, Item, ItemView, NewItemInput, Settings } from '../shared/types'
+import type { AppState, Group, Item, ItemView, NewItemInput, Settings } from '../shared/types'
 import { clampOpacity, THEME_IDS } from '../shared/defaults'
 import { hasRealIcon } from '../shared/icons'
 import { hostOf, normalizeUrl } from '../shared/url'
@@ -27,10 +27,13 @@ export function buildState(): AppState {
 
   const items: ItemView[] = data.items.map((item) => {
     const isPath = item.kind === 'file' || item.kind === 'folder'
+    const ext = isPath ? extname(item.target).slice(1).toLowerCase() : ''
     return {
       ...item,
       exists: isPath ? existsSync(item.target) : true,
-      ext: isPath ? extname(item.target).slice(1).toLowerCase() : ''
+      ext,
+      // 指向文件夹的快捷方式按文件夹展示：系统给的还是那套黄蓝文件夹图，跟矢量界面不搭
+      linkDir: isShortcutToDirectory(ext, item.target)
     }
   })
 
@@ -189,21 +192,66 @@ export function addItem(input: NewItemInput): boolean {
 
 /* ------------------------------------------------------------------ 修改 */
 
+/**
+ * 把一份 patch 应用到一个条目上，返回是否真的改了东西。
+ * 单条改和批量改共用这一份逻辑：两边各写一遍，迟早会有一边漏掉某个字段。
+ */
+function applyItemPatch(groups: Group[], item: Item, patch: Record<string, unknown>): boolean {
+  let changed = false
+
+  if (typeof patch.title === 'string') {
+    const next = patch.title.trim()
+    if (next && next !== item.title) {
+      item.title = next
+      changed = true
+    }
+  }
+  if (typeof patch.note === 'string' && patch.note !== item.note) {
+    item.note = patch.note
+    changed = true
+  }
+  if (typeof patch.pinned === 'boolean' && patch.pinned !== item.pinned) {
+    item.pinned = patch.pinned
+    changed = true
+  }
+  if (
+    typeof patch.groupId === 'string' &&
+    groups.some((g) => g.id === patch.groupId) &&
+    patch.groupId !== item.groupId
+  ) {
+    item.groupId = patch.groupId
+    changed = true
+  }
+
+  return changed
+}
+
 export function updateItem(id: string, patch: Record<string, unknown>): void {
   const data = getData()
   const item = data.items.find((it) => it.id === id)
   if (!item) return
 
-  if (typeof patch.title === 'string') {
-    const next = patch.title.trim()
-    if (next) item.title = next
-  }
-  if (typeof patch.note === 'string') item.note = patch.note
-  if (typeof patch.pinned === 'boolean') item.pinned = patch.pinned
-  if (typeof patch.groupId === 'string' && data.groups.some((g) => g.id === patch.groupId)) {
-    item.groupId = patch.groupId
-  }
+  applyItemPatch(data.groups, item, patch)
   save(data)
+}
+
+/**
+ * 批量改一组条目，返回真正被改到的条数。
+ * 只落一次盘、只推一次状态：选中二三十项时逐条调用会让界面闪很多次，
+ * 也会白白写几十遍磁盘。
+ */
+export function updateItems(ids: string[], patch: Record<string, unknown>): number {
+  const data = getData()
+  const wanted = new Set(ids)
+  let changed = 0
+
+  for (const item of data.items) {
+    if (!wanted.has(item.id)) continue
+    if (applyItemPatch(data.groups, item, patch)) changed += 1
+  }
+
+  if (changed > 0) save(data)
+  return changed
 }
 
 function markOpened(id: string): void {
@@ -295,6 +343,89 @@ export function removeItem(id: string): void {
   // 只从收纳盒移除记录，绝不动磁盘上的文件
   data.items.splice(index, 1)
   save(data)
+}
+
+/** 批量移除记录，返回实际移除的条数；原文件同样不动 */
+export function removeItems(ids: string[]): number {
+  const data = getData()
+  const wanted = new Set(ids)
+  const kept = data.items.filter((item) => !wanted.has(item.id))
+  const removed = data.items.length - kept.length
+  if (removed > 0) {
+    data.items = kept
+    save(data)
+  }
+  return removed
+}
+
+/** 批量改完给一句人话：固定 / 移动分组 / 改名，各自说清改了几项 */
+export function describeBatchPatch(patch: Record<string, unknown>, changed: number): string {
+  if (typeof patch.pinned === 'boolean') return patch.pinned ? `已固定 ${changed} 项` : `已取消固定 ${changed} 项`
+  if (typeof patch.groupId === 'string') {
+    const name = getData().groups.find((g) => g.id === patch.groupId)?.name
+    return name ? `已把 ${changed} 项移到「${name}」` : `已移动 ${changed} 项`
+  }
+  return `已更新 ${changed} 项`
+}
+
+/* ------------------------------------------------------------------ 批量打开 */
+
+export interface OpenManyOutcome {
+  opened: number
+  /** 文本片段：打开动作是「复制到剪贴板」，多选时逐条复制没有意义，单独计数 */
+  skipped: number
+  /** 路径已失效 / 打不开的条数 */
+  failed: number
+  /** 第一条失败原因，用来提示用户，别把一堆错误文案拼成一段 */
+  firstError: string | null
+}
+
+/**
+ * 批量打开。
+ *
+ * 文本片段（kind === 'text'）刻意跳过：它的「打开」是复制到剪贴板，
+ * 连点十条等于只剩最后一条，用户还以为全都复制了 —— 不如明确说跳过。
+ * 每个条目之间只留一点点间隔：Windows 对同一瞬间拉起十几个进程并不友好，
+ * 但等太久又会让「批量打开」变成一段要盯着看的进度条。
+ */
+export async function openItems(ids: string[]): Promise<OpenManyOutcome> {
+  const outcome: OpenManyOutcome = { opened: 0, skipped: 0, failed: 0, firstError: null }
+
+  for (const id of ids) {
+    const item = findItem(id)
+    if (!item) {
+      outcome.failed += 1
+      outcome.firstError ??= '部分条目已不存在'
+      continue
+    }
+    if (item.kind === 'text') {
+      outcome.skipped += 1
+      continue
+    }
+
+    const error = await openItem(id)
+    if (error) {
+      outcome.failed += 1
+      outcome.firstError ??= error
+    } else {
+      outcome.opened += 1
+    }
+    // 连续拉起多个进程时给系统喘口气；最后一条不用等
+    await new Promise((resolve) => setTimeout(resolve, 60))
+  }
+
+  return outcome
+}
+
+export function describeOpenMany(outcome: OpenManyOutcome): string {
+  if (outcome.opened === 0 && outcome.failed === 0 && outcome.skipped === 0) return ''
+  if (outcome.opened === 0 && outcome.failed === 0) return '文本片段没法批量打开，请单条双击复制'
+
+  const parts: string[] = []
+  if (outcome.opened > 0) parts.push(`已打开 ${outcome.opened} 项`)
+  if (outcome.failed > 0) parts.push(`${outcome.failed} 项打不开${outcome.firstError ? `（${outcome.firstError}）` : ''}`)
+  if (outcome.skipped > 0) parts.push(`跳过 ${outcome.skipped} 条文本片段`)
+  return parts.join('，')
 }
 
 /* ------------------------------------------------------------------ 分组 */
@@ -531,6 +662,116 @@ export function showItemMenu(id: string): void {
   })
 }
 
+/* ------------------------------------------------------------------ 批量右键菜单 */
+
+/**
+ * 多选状态的右键菜单。
+ *
+ * 不另起一套「批量菜单」的另一个原因：用户选了三项之后右键，如果他以为
+ * 点的是那一项而不是整组，菜单上写清条数就能救回来 —— 所以标题里带 N。
+ */
+export function showBatchMenu(ids: string[]): void {
+  const win = getWindow()
+  if (!win) return
+
+  const list = [...new Set(ids)].filter((id) => findItem(id))
+  if (list.length === 0) return
+  // 只剩一条时没有「批量」可言，直接退回单条菜单，菜单项也更好用
+  if (list.length === 1) {
+    showItemMenu(list[0])
+    return
+  }
+
+  const data = getData()
+  const items = list.map((id) => findItem(id)).filter((item): item is Item => Boolean(item))
+  const hasOpenable = items.some((item) => item.kind !== 'text')
+  const allPinned = items.every((item) => item.pinned)
+
+  const template: MenuItemConstructorOptions[] = [
+    {
+      label: `打开选中的 ${items.filter((it) => it.kind !== 'text').length} 项`,
+      enabled: hasOpenable,
+      click: () => {
+        void openItems(list).then(() => pushState())
+      }
+    },
+    { type: 'separator' },
+    {
+      label: allPinned ? '取消固定' : '固定到最前',
+      click: () => {
+        updateItems(list, { pinned: !allPinned })
+        pushState()
+      }
+    }
+  ]
+
+  // 只有一组可去的地方就不必给子菜单，直接列出来
+  const otherGroups = data.groups.filter((group) => items.some((item) => item.groupId !== group.id))
+  if (otherGroups.length > 0) {
+    template.push({
+      label: '全部移动到分组',
+      submenu: otherGroups.map((group) => ({
+        label: group.name,
+        click: () => {
+          updateItems(list, { groupId: group.id })
+          pushState()
+        }
+      }))
+    })
+  }
+
+  template.push({ type: 'separator' })
+  template.push({
+    label: `从收纳盒移除这 ${items.length} 项`,
+    click: () => {
+      void removeItemsConfirmed(list).then(() => pushState())
+    }
+  })
+
+  const release = lockAutoHide()
+  const menu = Menu.buildFromTemplate(template)
+  menu.popup({
+    window: win,
+    callback: () => release()
+  })
+}
+
+/**
+ * 批量移除前先确认。
+ *
+ * 单条移除一直是不问的 —— 点错了右键菜单再补回来也就两步。但批量移除
+ * 一次能带走二三十条记录，误触的代价是重新拖一遍全部内容，值得多一次确认。
+ */
+export async function removeItemsConfirmed(ids: string[]): Promise<number> {
+  const list = [...new Set(ids)].filter((id) => findItem(id))
+  if (list.length === 0) return 0
+  if (list.length === 1) {
+    removeItem(list[0])
+    return 1
+  }
+
+  const win = getWindow()
+  if (!win) return 0
+
+  const release = lockAutoHide()
+  try {
+    const result = await dialog.showMessageBox(win, {
+      type: 'warning',
+      title: '从收纳盒移除',
+      message: `从收纳盒移除 ${list.length} 项？`,
+      detail: '只删掉盒子里的记录，磁盘上的原文件不会被移动或删除。',
+      buttons: ['移除', '取消'],
+      defaultId: 1,
+      cancelId: 1,
+      noLink: true
+    })
+    if (result.response !== 0) return 0
+    return removeItems(list)
+  } finally {
+    release()
+  }
+}
+
 /* ------------------------------------------------------------------ 系统图标 */
 
 /**
@@ -590,6 +831,25 @@ function absoluteIconPath(file: string): string {
   if (isAbsolute(file)) return file
   const system32 = join(process.env.SystemRoot || 'C:\\Windows', 'System32', file)
   return existsSync(system32) ? system32 : file
+}
+
+/**
+ * .lnk 是否指向文件夹（目标存在时才算）。
+ *
+ * 这类快捷方式显示系统图标时拿到的仍是 Windows 那张黄蓝文件夹图，
+ * 跟界面里自绘的矢量文件夹完全两套语言，所以整体按文件夹处理。
+ */
+function isShortcutToDirectory(ext: string, target: string): boolean {
+  if (ext !== 'lnk') return false
+  try {
+    const link = shell.readShortcutLink(target)
+    if (!link.target) return false
+    // 用户自己给快捷方式设过图标就尊重原图；只接管「用目标默认图标」的那类
+    if (splitIconLocation(link.icon, link.iconIndex).file) return false
+    return statSync(link.target).isDirectory()
+  } catch {
+    return false
+  }
 }
 
 function iconSource(target: string, ext: string): IconSource {
@@ -676,6 +936,8 @@ export async function getItemIcon(id: string): Promise<string | null> {
   const ext = extname(item.target).slice(1).toLowerCase()
   if (!hasRealIcon(ext)) return null
   if (!existsSync(item.target)) return null
+  // 指向文件夹的快捷方式：系统给的黄蓝文件夹图和矢量界面不搭，走渲染层的矢量文件夹
+  if (isShortcutToDirectory(ext, item.target)) return null
 
   if (iconCache.has(item.target)) return iconCache.get(item.target) ?? null
 

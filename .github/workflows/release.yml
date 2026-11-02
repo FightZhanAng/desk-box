@@ -66,12 +66,21 @@ jobs:
 
       # latest.yml 和 blockmap 都不能少：应用内的更新检查先去 Release 拉清单
       # 才知道有没有新版本，blockmap 是差分下载用的（少了就只能整包重下）。
+      # 说明文字用 tag 上的中文 message（git tag -m 写的），拿不到再退自动生成。
       - name: 发布 Release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ARGS=(--generate-notes)
+          # checkout 落下来的可能是指向 commit 的轻量引用，强制重取一次拿注解对象
+          git fetch --force origin "refs/tags/${{ github.ref_name }}:refs/tags/${{ github.ref_name }}" || true
+          NOTES=$(git tag -l --format='%(contents)' "${{ github.ref_name }}")
+          if [ -n "$NOTES" ]; then
+            printf '%s\n' "$NOTES" > release-notes.md
+            ARGS=(--notes-file release-notes.md)
+          fi
           gh release create "${{ github.ref_name }}" \
             dist/*-setup.exe dist/*-portable.exe dist/latest.yml dist/*.blockmap \
             --repo "${{ github.repository }}" \
-            --generate-notes
+            "${ARGS[@]}"

@@ -8,20 +8,26 @@ import {
   buildState,
   copyItemTarget,
   describeAddPaths,
+  describeBatchPatch,
+  describeOpenMany,
   exportData,
   getItemIcon,
   importData,
   openItem,
+  openItems,
   patchSettings,
   promptAddFiles,
   promptAddFolder,
   removeGroup,
   removeItem,
+  removeItemsConfirmed,
   renameGroup,
   revealItem,
+  showBatchMenu,
   showItemMenu,
   startDragItem,
-  updateItem
+  updateItem,
+  updateItems
 } from './actions'
 import { refreshTrayMenu } from './tray'
 import {
@@ -36,11 +42,17 @@ import { getWindow } from './window'
 /**
  * 统一包装：执行写操作 → 回传最新状态。
  * 任何异常都转成 ok:false + message，绝不让渲染层拿到一个 unhandled rejection。
+ * 任务也可以返回 { cancelled: true } 表示用户在原生对话框里点了取消。
  */
-async function withState(task: () => string | void | Promise<string | void>): Promise<ActionResult> {
+type TaskOutcome = string | void | { message?: string; cancelled?: boolean }
+
+async function withState(task: () => TaskOutcome | Promise<TaskOutcome>): Promise<ActionResult> {
   try {
-    const message = await task()
-    return { ok: true, message: message ?? undefined, state: await buildState() }
+    const outcome = await task()
+    const message = typeof outcome === 'string' ? outcome : outcome?.message
+    const cancelled =
+      typeof outcome === 'object' && outcome !== null ? outcome.cancelled === true : false
+    return { ok: true, message: message ?? undefined, cancelled, state: await buildState() }
   } catch (error) {
     return {
       ok: false,
@@ -80,6 +92,39 @@ export function registerIpc(): void {
     })
   )
 
+  /* ---------------------------------------------------------- 批量操作 */
+
+  ipcMain.handle(IPC.itemUpdateMany, (_event, ids: string[], patch: Record<string, unknown>) =>
+    withState(() => {
+      const list = Array.isArray(ids) ? ids : []
+      const changed = updateItems(list, patch ?? {})
+      if (changed === 0) return '选中的条目已经是这个状态'
+      return describeBatchPatch(patch ?? {}, changed)
+    })
+  )
+
+  ipcMain.handle(IPC.itemRemoveMany, (_event, ids: string[]) =>
+    withState(async () => {
+      const list = Array.isArray(ids) ? ids : []
+      const removed = await removeItemsConfirmed(list)
+      // 0 条有两种可能：全都不存在了，或者用户点了取消 —— 后者不该弹提示
+      if (removed === 0) return { cancelled: true }
+      return `已从盒子移除 ${removed} 项（原文件没有改动）`
+    })
+  )
+
+  ipcMain.handle(IPC.itemOpenMany, (_event, ids: string[]) =>
+    withState(async () => {
+      const list = Array.isArray(ids) ? ids : []
+      if (list.length === 0) throw new Error('没有选中任何条目')
+      const outcome = await openItems(list)
+      const message = describeOpenMany(outcome)
+      // 一项都没打开就是失败，让界面走警告样式的提示
+      if (outcome.opened === 0) throw new Error(message || '这些条目打不开')
+      return message
+    })
+  )
+
   ipcMain.handle(IPC.itemOpen, (_event, id: string) =>
     withState(async () => {
       const error = await openItem(id)
@@ -103,6 +148,10 @@ export function registerIpc(): void {
   // 右键菜单与拖拽必须是同步的：异步往返会让菜单错过弹窗时机、拖拽丢失上下文
   ipcMain.on(IPC.itemMenu, (_event, id: string) => {
     showItemMenu(id)
+  })
+
+  ipcMain.on(IPC.itemMenuMany, (_event, ids: string[]) => {
+    showBatchMenu(Array.isArray(ids) ? ids : [])
   })
 
   ipcMain.on(IPC.itemDrag, (_event, id: string) => {

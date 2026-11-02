@@ -198,7 +198,7 @@ export function ItemGlyph({ item }: { item: ItemView }) {
   }
 
   if (!item.exists) {
-    return <MissingGlyph folder={item.kind === 'folder'} />
+    return <MissingGlyph folder={item.kind === 'folder' || item.linkDir} />
   }
 
   if (item.kind === 'folder') {
@@ -207,6 +207,23 @@ export function ItemGlyph({ item }: { item: ItemView }) {
         <FolderBack />
         <FolderFront />
         <path d="M3.4 13.4h25.2" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+      </svg>
+    )
+  }
+
+  // 指向文件夹的快捷方式：同一张矢量文件夹，左下角压一枚「捷径」小圆徽做区分
+  // —— Windows 用户本来就认识「箭头角标 = 快捷方式」这套语言
+  if (item.linkDir) {
+    return (
+      <svg className="glyph glyph--folder glyph--shortcut" viewBox="0 0 32 32" aria-hidden="true">
+        <FolderBack />
+        <FolderFront />
+        <path d="M3.4 13.4h25.2" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+        <circle className="glyph__badge" cx="23.6" cy="24" r="6.4" />
+        <path
+          className="glyph__badge-arrow"
+          d="M21 26.6 26.2 21.4M26.2 21.4h-3.6M26.2 21.4v3.6"
+        />
       </svg>
     )
   }

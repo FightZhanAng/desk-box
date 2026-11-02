@@ -4,9 +4,12 @@ import { ItemCard } from './ItemCard'
 interface Props {
   items: ItemView[]
   compact: boolean
-  selectedId: string | null
-  onSelect: (id: string) => void
+  selectedIds: Set<string>
+  /** Ctrl/Shift 点击多选；普通单击不再选中 */
+  onSelect: (id: string, event: React.MouseEvent) => void
   onOpen: (id: string) => void
+  /** 片段双击预览 */
+  onPreview: (id: string) => void
   onMenu: (id: string) => void
   onDragBegin: () => void
   onDragEnd: () => void
@@ -15,9 +18,10 @@ interface Props {
 export function ItemGrid({
   items,
   compact,
-  selectedId,
+  selectedIds,
   onSelect,
   onOpen,
+  onPreview,
   onMenu,
   onDragBegin,
   onDragEnd
@@ -28,9 +32,10 @@ export function ItemGrid({
         <ItemCard
           key={item.id}
           item={item}
-          selected={selectedId === item.id}
-          onSelect={() => onSelect(item.id)}
+          selected={selectedIds.has(item.id)}
+          onSelect={(event) => onSelect(item.id, event)}
           onOpen={() => onOpen(item.id)}
+          onPreview={() => onPreview(item.id)}
           onMenu={() => onMenu(item.id)}
           onDragBegin={onDragBegin}
           onDragEnd={onDragEnd}

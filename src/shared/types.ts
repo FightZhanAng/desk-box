@@ -31,6 +31,8 @@ export interface ItemView extends Item {
   ext: string
   /** 文件是否还在原位 */
   exists: boolean
+  /** 快捷方式（.lnk）是否指向文件夹。这类项按文件夹展示：矢量文件夹图标，不取系统图标 */
+  linkDir: boolean
 }
 
 export interface Group {
@@ -96,6 +98,8 @@ export interface ActionResult {
   ok: boolean
   /** 需要提示给用户的文案（成功提示或失败原因） */
   message?: string
+  /** 用户在原生对话框里点了取消：界面不应把这次操作当成已完成 */
+  cancelled?: boolean
   state: AppState
 }
 
@@ -143,6 +147,10 @@ export const IPC = {
   itemReveal: 'item:reveal',
   itemCopy: 'item:copy',
   itemMenu: 'item:menu',
+  itemUpdateMany: 'item:update-many',
+  itemRemoveMany: 'item:remove-many',
+  itemOpenMany: 'item:open-many',
+  itemMenuMany: 'item:menu-many',
   itemDrag: 'item:drag',
   itemIcon: 'item:icon',
   groupAdd: 'group:add',

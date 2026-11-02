@@ -13,6 +13,8 @@ const cache = new Map<string, string | null>()
 /** 只有这几类文件值得去问系统要图标，其余用自绘矢量图（见 shared/icons.ts） */
 function wants(item: ItemView): boolean {
   if (!item.exists) return false
+  // 指向文件夹的快捷方式：系统图标就是那套黄蓝文件夹，直接用矢量文件夹
+  if (item.linkDir) return false
   if (item.kind !== 'file' && item.kind !== 'folder') return false
   return hasRealIcon(item.ext)
 }
