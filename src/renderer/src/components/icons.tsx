@@ -126,6 +126,31 @@ export function ArrowDownIcon({ className }: IconProps) {
   )
 }
 
+/** 排序：三条长度递减的横线 + 上下箭头，一眼看出是「换个排法」而不是「设置」 */
+export function SortIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="M4 7h11" />
+      <path d="M4 12h7" />
+      <path d="M4 17h4" />
+      <path d="M18.5 5.5v13" />
+      <path d="M15.8 15.6 18.5 18.3l2.7-2.7" />
+    </svg>
+  )
+}
+
+/** 整理模式：两列小方块 + 双向箭头，跟「排序」区分开 */
+export function ArrangeIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <rect x="4" y="4.6" width="6" height="6" rx="1.4" />
+      <rect x="14" y="4.6" width="6" height="6" rx="1.4" />
+      <rect x="4" y="13.4" width="6" height="6" rx="1.4" />
+      <rect x="14" y="13.4" width="6" height="6" rx="1.4" />
+    </svg>
+  )
+}
+
 /** 空状态：箭头落进一只开口的盒子 */
 export function EmptyDrawerIcon({ className }: IconProps) {
   return (

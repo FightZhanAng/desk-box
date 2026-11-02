@@ -4,9 +4,11 @@ interface Props {
   value: string
   onChange: (value: string) => void
   inputRef: React.RefObject<HTMLInputElement | null>
+  /** 右侧附加控件（排序入口）；搜索框本身不管它长什么样 */
+  trailing?: React.ReactNode
 }
 
-export function SearchBar({ value, onChange, inputRef }: Props) {
+export function SearchBar({ value, onChange, inputRef, trailing }: Props) {
   return (
     <div className="searchbar">
       <SearchIcon />
@@ -22,6 +24,7 @@ export function SearchBar({ value, onChange, inputRef }: Props) {
           <CloseIcon />
         </button>
       )}
+      {trailing}
     </div>
   )
 }

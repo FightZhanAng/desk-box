@@ -1,8 +1,29 @@
-import type { AppData, Settings, ThemeId } from './types'
+import type { AppData, ItemSort, Settings, ThemeId } from './types'
 
 export const DATA_VERSION = 1
 
 export const THEME_IDS: ThemeId[] = ['wood', 'night', 'celadon', 'indigo']
+
+/** 排序方式的显示名。顺序就是菜单里的顺序 */
+export const SORT_LABELS: Record<ItemSort, string> = {
+  custom: '手动整理',
+  recent: '最近添加',
+  opened: '最近打开',
+  name: '按名称'
+}
+
+export const SORT_IDS: ItemSort[] = ['recent', 'opened', 'name', 'custom']
+
+/**
+ * 「常用」虚拟分组的 id。
+ *
+ * 它不落盘、不占真实分组：分组列表是用户亲手管理的，混一个不可删的进去
+ * 会让「为什么这个删不掉」变成常驻疑问。渲染层用这个 id 当筛选条件即可。
+ */
+export const FREQUENT_ID = 'freq'
+
+/** 「常用」里最多放几项 */
+export const FREQUENT_LIMIT = 10
 
 /** 主题的显示名。放在 THEME_IDS 旁边，加主题时不会漏掉一处 */
 export const THEME_LABELS: Record<ThemeId, string> = {
@@ -38,7 +59,9 @@ export const DEFAULT_SETTINGS: Settings = {
   // 后台静默检查不打扰人；下载却要手动点 ——
   // 到 GitHub 的带宽经常只有几十 KB/s，不该偷偷吃满
   autoCheckUpdate: true,
-  autoDownloadUpdate: false
+  autoDownloadUpdate: false,
+  // 保持上一版的手感：固定项在最前，其余按加入时间倒序，刚拖进来的立刻在顶部
+  sortBy: 'recent'
 }
 
 /**
@@ -99,7 +122,10 @@ export function normalizeData(raw: unknown): AppData {
             pinned: it.pinned === true,
             createdAt: typeof it.createdAt === 'number' ? it.createdAt : Date.now(),
             lastOpenedAt: typeof it.lastOpenedAt === 'number' ? it.lastOpenedAt : 0,
-            openCount: typeof it.openCount === 'number' ? it.openCount : 0
+            openCount: typeof it.openCount === 'number' ? it.openCount : 0,
+            // 老数据没有 order 字段：这里先留空，等整批读完按加入时间倒序
+            // 统一编号（见下方 seedOrder），免得全库都是 0、拖拽时插不进去
+            order: typeof it.order === 'number' ? it.order : Number.NaN
           }
         })
     : []
@@ -122,6 +148,17 @@ export function normalizeData(raw: unknown): AppData {
   }
   if (typeof settings.autoDownloadUpdate !== 'boolean') {
     settings.autoDownloadUpdate = base.settings.autoDownloadUpdate
+  }
+  if (!SORT_IDS.includes(settings.sortBy)) settings.sortBy = base.settings.sortBy
+
+  // 没有 order 的老数据按加入时间倒序编号 —— 正好等于升级前的显示顺序，
+  // 打开盒子看不出任何变化，而位次从此有了可插入的间隔
+  const needsSeed = items.some((item) => !Number.isFinite(item.order))
+  if (needsSeed) {
+    const seeded = [...items].sort((a, b) => b.createdAt - a.createdAt)
+    seeded.forEach((item, index) => {
+      item.order = index
+    })
   }
 
   return {

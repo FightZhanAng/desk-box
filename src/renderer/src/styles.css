@@ -1983,6 +1983,176 @@ textarea {
   color: var(--toast-warn-fg);
 }
 
+/* ------------------------------------------------------------------ 排序与整理 */
+
+/* 搜索栏要压过下面的网格。
+   .shell > * 统一给了 z-index: 1，于是搜索栏自己也成了一个层叠上下文，
+   里面弹出的排序菜单即使 z-index: 100 也只能在这个上下文里比大小 ——
+   而 .board 同样是 1、且在 DOM 里更靠后，整块网格就会盖到菜单上面去。
+   把搜索栏抬到 3，菜单才真正浮在卡片之上。 */
+.searchbar {
+  z-index: 3;
+}
+
+.sortwrap {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+
+/* 搜索框里的图标统一 13px，这个按钮复用同一套尺寸，视觉上像搜索框的一部分 */
+.sortbtn {
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border-radius: 5px;
+  color: var(--ink-3);
+}
+
+.sortbtn:hover {
+  color: var(--ink);
+  background: var(--hair-2);
+}
+
+.sortbtn.is-on {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.sortbtn svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* 排序菜单：复用 .ctx 的定位与配色，只补左右布局和勾选态 */
+.ctx button.sortmenu__item,
+.sortmenu button.sortmenu__item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.sortmenu .ctx__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sortmenu__item.is-current {
+  color: var(--accent-deep);
+  font-weight: 600;
+}
+
+.sortmenu__tick {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.sortmenu__sep {
+  height: 1px;
+  margin: 3px 4px;
+  background: var(--line);
+}
+
+/* 整理模式提示条：贴在搜索框下面，窄、只占一行，不挤占网格空间 */
+.arrange-hint {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 7px 12px 0;
+  padding: 5px 9px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  border: 1px solid var(--accent-line);
+  font-size: 10.5px;
+  color: var(--accent-deep);
+  line-height: 1.5;
+  animation: fade-in 0.14s ease;
+}
+
+.arrange-hint__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.arrange-hint__done {
+  flex: none;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--on-accent);
+  background: var(--accent);
+}
+
+.arrange-hint__done:hover {
+  background: var(--accent-deep);
+}
+
+/* 整理模式：卡片变成「可拖的方块」，不再有悬停浮起的暗示 —— 那看起来像要打开它 */
+.grid.is-arranging .tile {
+  cursor: grab;
+}
+
+.grid.is-arranging .tile:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.grid.is-arranging .tile.is-dragging {
+  opacity: 0.42;
+  cursor: grabbing;
+  transform: scale(0.97);
+  border-style: dashed;
+  border-color: var(--accent);
+}
+
+/* 正在被划过的落点位置给一道插入线，看得出会插到哪儿 */
+.grid.is-arranging .tile:not(.is-dragging)::before {
+  content: '';
+  position: absolute;
+  inset: 3px auto 3px 0;
+  width: 2px;
+  border-radius: 2px;
+  background: transparent;
+  transition: background 0.12s ease;
+}
+
+.grid.is-arranging .tile:hover::before {
+  background: var(--accent-line);
+}
+
+/* 分组胶囊拖拽换位：拖动中半透明，落点高亮一道内描边 */
+.group-pill.is-dragging {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+.group-pill.is-drop {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-deep);
+}
+
+/* 右键菜单里被禁用的项（左移在第一格、右移在最后一格） */
+.ctx button:disabled {
+  opacity: 0.42;
+  cursor: default;
+}
+
+.ctx button:disabled:hover {
+  background: transparent;
+}
+
 /* ------------------------------------------------------------------ 动画 */
 
 @keyframes fade-in {

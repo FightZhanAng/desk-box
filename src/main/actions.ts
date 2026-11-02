@@ -5,7 +5,7 @@ import { existsSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { basename, dirname, extname, isAbsolute, join } from 'node:path'
 import type { AppState, Group, Item, ItemView, NewItemInput, Settings } from '../shared/types'
-import { clampOpacity, THEME_IDS } from '../shared/defaults'
+import { clampOpacity, SORT_IDS, THEME_IDS } from '../shared/defaults'
 import { hasRealIcon } from '../shared/icons'
 import { hostOf, normalizeUrl } from '../shared/url'
 import { getActiveHotkey, registerHotkey } from './hotkey'
@@ -37,9 +37,11 @@ export function buildState(): AppState {
     }
   })
 
-  // 固定项永远在最前；其余按加入时间倒序，刚拖进来的立刻出现在顶部
+  // 固定项永远在最前；其余先看手动位次，位次相同再按加入时间倒序 ——
+  // 老数据 order 全是 0，这样排出来跟升级前完全一致，新拖进来的也照样在顶部
   items.sort((a, b) => {
     if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    if (a.order !== b.order) return a.order - b.order
     return b.createdAt - a.createdAt
   })
 
@@ -85,6 +87,17 @@ function defaultTitle(kind: Item['kind'], target: string): string {
   }
   if (kind === 'link') return hostOf(target) || target
   return displayName(target)
+}
+
+/**
+ * 新条目的排序位次：永远比现有最小值再小一点，于是稳稳落在最前面。
+ * 不用 0 是因为 0 会和已有条目撞位次，只能靠 createdAt 兜底 —— 同一毫秒
+ * 批量拖进来几项时那个兜底就不成立了，顺序会抖。
+ */
+function nextTopOrder(items: Item[]): number {
+  if (items.length === 0) return 0
+  const min = Math.min(...items.map((item) => item.order))
+  return min - 1
 }
 
 export interface AddPathsOutcome {
@@ -137,7 +150,8 @@ export function addPaths(paths: string[], groupId?: string): AddPathsOutcome {
       pinned: false,
       createdAt: Date.now(),
       lastOpenedAt: 0,
-      openCount: 0
+      openCount: 0,
+      order: nextTopOrder(data.items)
     })
     outcome.added += 1
   }
@@ -184,7 +198,8 @@ export function addItem(input: NewItemInput): boolean {
     pinned: false,
     createdAt: Date.now(),
     lastOpenedAt: 0,
-    openCount: 0
+    openCount: 0,
+    order: nextTopOrder(data.items)
   })
   save(data)
   return true
@@ -261,6 +276,54 @@ function markOpened(id: string): void {
   item.lastOpenedAt = Date.now()
   item.openCount += 1
   save(data)
+}
+
+/**
+ * 手动排序。
+ *
+ * 只重排传进来的这些条目，且只改动它们之间的相对位次 —— 没参与排序的
+ * 条目（其他分组、或被搜索过滤掉的）一律保持原样。
+ *
+ * 做法：先按当前全局顺序排一遍，找出这批条目原本占住的那些「座位」，
+ * 再把它们按新顺序依次填回同样的座位，最后整库重编号。这样既不会因为
+ * 一次整理把没参与排序的条目挤到别处，也顺手解决了老数据 order 全为 0、
+ * 根本插不进值的问题。
+ */
+export function reorderItems(ids: string[]): number {
+  const data = getData()
+  const wanted = new Set(ids)
+  const moving = data.items.filter((item) => wanted.has(item.id))
+  if (moving.length < 2) return 0
+
+  // 拖拽过程中可能混进重复 id 或已被删掉的 id，先去重去无效
+  const next = [...new Set(ids)].filter((id) => moving.some((item) => item.id === id))
+  if (next.length < 2) return 0
+
+  const sorted = [...data.items].sort((a, b) => {
+    if (a.pinned !== b.pinned) return a.pinned ? -1 : 1
+    if (a.order !== b.order) return a.order - b.order
+    return b.createdAt - a.createdAt
+  })
+
+  // 按新顺序依次填回这批条目原本占住的座位
+  let cursor = 0
+  const arranged = sorted.map((item) => {
+    if (!wanted.has(item.id)) return item
+    const id = next[cursor]
+    cursor += 1
+    return data.items.find((it) => it.id === id) ?? item
+  })
+
+  let changed = 0
+  arranged.forEach((item, index) => {
+    if (item.order !== index) {
+      item.order = index
+      changed += 1
+    }
+  })
+
+  if (changed > 0) save(data)
+  return changed
 }
 
 /**
@@ -476,6 +539,37 @@ export function removeGroup(id: string): boolean {
   return true
 }
 
+/**
+ * 重排分组。
+ *
+ * 传进来的 id 顺序就是目标顺序；没出现在列表里的分组（理论上不该有，
+ * 但渲染层可能只拿到可见的那些）按原相对顺序补到末尾，绝不因为一次
+ * 拖拽把某个分组弄丢。落盘时统一重编号，位次永远是 0..n-1 的连续整数 ——
+ * 分组数量本来就少，不像条目那样需要留插入间隔。
+ */
+export function reorderGroups(ids: string[]): number {
+  const data = getData()
+  const next = [...new Set(ids)].filter((id) => data.groups.some((g) => g.id === id))
+  if (next.length === 0) return 0
+
+  const ordered = data.groups
+    .filter((g) => next.includes(g.id))
+    .sort((a, b) => next.indexOf(a.id) - next.indexOf(b.id))
+  const rest = data.groups.filter((g) => !next.includes(g.id))
+
+  const arranged = [...ordered, ...rest]
+  let changed = 0
+  arranged.forEach((group, index) => {
+    if (group.order !== index) {
+      group.order = index
+      changed += 1
+    }
+  })
+
+  if (changed > 0) save(data)
+  return changed
+}
+
 /* ------------------------------------------------------------------ 设置 */
 
 export function patchSettings(patch: Partial<Settings>): void {
@@ -485,6 +579,7 @@ export function patchSettings(patch: Partial<Settings>): void {
   // 主题 id 拼错则整块配色塌回无色。这里兜一层，落盘的永远是合法值。
   if ('opacity' in patch) patch.opacity = clampOpacity(patch.opacity, data.settings.opacity)
   if (patch.theme !== undefined && !THEME_IDS.includes(patch.theme)) delete patch.theme
+  if (patch.sortBy !== undefined && !SORT_IDS.includes(patch.sortBy)) delete patch.sortBy
 
   const hotkeyChanged = typeof patch.hotkey === 'string' && patch.hotkey !== data.settings.hotkey
 

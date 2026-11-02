@@ -1,5 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { Group } from '@shared/types'
+import { FREQUENT_ID } from '@shared/defaults'
+import { INTERNAL_GROUP_TYPE } from '../lib/dnd'
 import { PlusIcon } from './icons'
 
 interface Props {
@@ -7,10 +9,16 @@ interface Props {
   counts: Map<string, number>
   total: number
   active: string | null
+  /** 「常用」虚拟分组里的条目数；0 时不显示这个胶囊 */
+  frequentCount: number
   onSelect: (id: string | null) => void
   onAdd: (name: string) => void
   onRename: (id: string, name: string) => void
   onRemove: (id: string) => void
+  /** 分组顺序变了：传当前完整的目标顺序 */
+  onReorder: (ids: string[]) => void
+  /** 分组胶囊开始/结束拖拽；App 用它屏蔽 shell 的「拖东西进来」处理 */
+  onDragStateChange: (active: boolean) => void
 }
 
 interface MenuState {
@@ -33,7 +41,19 @@ interface MoreState {
  * is-hidden（绝对定位 + visibility）移出排版但保留可测量性，布局效果
  * 在 useLayoutEffect 里逐个量出来，窗口缩放时 ResizeObserver 触发重算。
  */
-export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRename, onRemove }: Props) {
+export function GroupTabs({
+  groups,
+  counts,
+  total,
+  active,
+  frequentCount,
+  onSelect,
+  onAdd,
+  onRename,
+  onRemove,
+  onReorder,
+  onDragStateChange
+}: Props) {
   const [creating, setCreating] = useState(false)
   const [draft, setDraft] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -71,7 +91,9 @@ export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRe
     const gap = Number.isFinite(parseFloat(cs.columnGap)) ? parseFloat(cs.columnGap) : 6
     const allW = pillEls.current.get('__all__')?.offsetWidth ?? 56
     const addW = pillEls.current.get('__add__')?.offsetWidth ?? 25
-    let budget = avail - allW - addW - gap * 2
+    // 「常用」是固定胶囊，跟「全部」一样常驻，宽度要从预算里先扣掉
+    const freqW = frequentCount > 0 ? (pillEls.current.get('__freq__')?.offsetWidth ?? 56) + gap : 0
+    let budget = avail - allW - addW - gap * 2 - freqW
 
     const widthOf = (id: string): number => pillEls.current.get(id)?.offsetWidth ?? 0
     const widths = groups.map((group) => widthOf(group.id))
@@ -111,7 +133,7 @@ export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRe
     }
 
     setVisibleIds(new Set(visible.map((group) => group.id)))
-  }, [groups, counts, active, editingId, layoutEpoch])
+  }, [groups, counts, active, editingId, layoutEpoch, frequentCount])
 
   /* 窗口宽度变化 → 重算布局 */
   useEffect(() => {
@@ -171,6 +193,54 @@ export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRe
     })
   }
 
+  /* ---------------------------------------------------------------- 分组排序 */
+
+  /**
+   * 拖动中的临时顺序。
+   *
+   * 跟 ItemGrid 一样用 ref 镜像实时值：dragstart → dragover → drop → dragend
+   * 往往在同一个 tick 里同步派发完，闭包里读到的 state 永远是旧值。
+   */
+  const [dragId, setDragId] = useState<string | null>(null)
+  const [dropId, setDropId] = useState<string | null>(null)
+  const dragRef = useRef<string | null>(null)
+
+  const beginGroupDrag = (id: string): void => {
+    dragRef.current = id
+    setDragId(id)
+    onDragStateChange(true)
+  }
+
+  const endGroupDrag = (): void => {
+    dragRef.current = null
+    setDragId(null)
+    setDropId(null)
+    onDragStateChange(false)
+  }
+
+  /** 把 from 插到 to 的位置，返回新顺序 */
+  const moveTo = (from: string, to: string): void => {
+    if (from === to) return
+    const order = groups.map((group) => group.id)
+    const fromIndex = order.indexOf(from)
+    const toIndex = order.indexOf(to)
+    if (fromIndex < 0 || toIndex < 0) return
+    order.splice(fromIndex, 1)
+    order.splice(toIndex, 0, from)
+    onReorder(order)
+  }
+
+  /** 右键菜单的左移/右移：一次挪一格，边界处直接忽略 */
+  const nudge = (id: string, delta: number): void => {
+    const index = groups.findIndex((group) => group.id === id)
+    const target = groups[index + delta]
+    if (!target) return
+    const order = groups.map((group) => group.id)
+    order.splice(index, 1)
+    order.splice(index + delta, 0, id)
+    onReorder(order)
+  }
+
   return (
     <>
       <nav className="groups" ref={navRef}>
@@ -183,6 +253,23 @@ export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRe
           全部
           <span className="group-pill__count">{total}</span>
         </button>
+
+        {/*
+          「常用」是虚拟分组：不占真实分组、不可改名删除，里面的条目仍归属原分组。
+          只在有点击记录时才出现 —— 一上来就挂个空胶囊，比不显示更让人困惑。
+        */}
+        {frequentCount > 0 && (
+          <button
+            type="button"
+            ref={setPillRef('__freq__')}
+            className={`group-pill group-pill--freq ${active === FREQUENT_ID ? 'is-active' : ''}`}
+            onClick={() => onSelect(FREQUENT_ID)}
+            title="打开次数最多的 10 项，跨所有分组聚合"
+          >
+            常用
+            <span className="group-pill__count">{frequentCount}</span>
+          </button>
+        )}
 
         {groups.map((group) =>
           editingId === group.id ? (
@@ -209,25 +296,52 @@ export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRe
               className={[
                 'group-pill',
                 active === group.id ? 'is-active' : '',
+                dragId === group.id ? 'is-dragging' : '',
+                dropId === group.id && dragId !== group.id ? 'is-drop' : '',
                 visibleIds && !visibleIds.has(group.id) && editingId !== group.id ? 'is-hidden' : ''
               ]
                 .filter(Boolean)
                 .join(' ')}
+              draggable
               onClick={() => onSelect(group.id)}
               onDoubleClick={() => {
                 setEditingId(group.id)
                 setEditDraft(group.name)
               }}
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = 'move'
+                // 用自定义 MIME 标记「这是内部分组换位」，App 据此拦住
+                // shell 的「拖东西进来」处理；同时补一份 text/plain，
+                // 部分平台不 setData 就不认这是一次有效拖拽
+                event.dataTransfer.setData(INTERNAL_GROUP_TYPE, group.id)
+                event.dataTransfer.setData('text/plain', group.id)
+                beginGroupDrag(group.id)
+              }}
+              onDragOver={(event) => {
+                event.preventDefault()
+                event.dataTransfer.dropEffect = 'move'
+                if (dragRef.current && dragRef.current !== group.id) setDropId(group.id)
+              }}
+              onDragLeave={() => {
+                setDropId((prev) => (prev === group.id ? null : prev))
+              }}
+              onDrop={(event) => {
+                event.preventDefault()
+                const from = dragRef.current
+                if (from) moveTo(from, group.id)
+                endGroupDrag()
+              }}
+              onDragEnd={endGroupDrag}
               onContextMenu={(event) => {
                 event.preventDefault()
                 setMenu({
                   id: group.id,
                   name: group.name,
                   x: Math.min(event.clientX, window.innerWidth - 130),
-                  y: Math.min(event.clientY, window.innerHeight - 84)
+                  y: Math.min(event.clientY, window.innerHeight - 150)
                 })
               }}
-              title="双击重命名 · 右键更多"
+              title="拖拽换位 · 双击重命名 · 右键更多"
             >
               {group.name}
               {(counts.get(group.id) ?? 0) > 0 && (
@@ -302,6 +416,27 @@ export function GroupTabs({ groups, counts, total, active, onSelect, onAdd, onRe
             }}
           >
             重命名
+          </button>
+          {/* 左移/右移是拖拽的键盘式替代：胶囊收进「更多」下拉时拖不动，这两项还在 */}
+          <button
+            type="button"
+            disabled={groups.findIndex((group) => group.id === menu.id) <= 0}
+            onClick={() => {
+              nudge(menu.id, -1)
+              setMenu(null)
+            }}
+          >
+            左移
+          </button>
+          <button
+            type="button"
+            disabled={groups.findIndex((group) => group.id === menu.id) >= groups.length - 1}
+            onClick={() => {
+              nudge(menu.id, 1)
+              setMenu(null)
+            }}
+          >
+            右移
           </button>
           <button
             type="button"

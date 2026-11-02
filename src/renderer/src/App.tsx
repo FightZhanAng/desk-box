@@ -1,7 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties, DragEvent, MouseEvent as ReactMouseEvent } from 'react'
-import type { ActionResult, AppState, Settings, UpdateAction, UpdateState } from '@shared/types'
+import type { ActionResult, AppState, ItemSort, Settings, UpdateAction, UpdateState } from '@shared/types'
+import { FREQUENT_ID, FREQUENT_LIMIT } from '@shared/defaults'
 import { looksLikeUrl } from '@shared/url'
+import { isInitialsQuery, initialsOf } from './lib/initials'
+import { isInternalDrag } from './lib/dnd'
+import { sortItems } from './lib/sortItems'
 import { AddSheet } from './components/AddSheet'
 import { ArrowDownIcon } from './components/icons'
 import { Dock } from './components/Dock'
@@ -11,6 +15,7 @@ import { ItemGrid } from './components/ItemGrid'
 import { SearchBar } from './components/SearchBar'
 import { SelectionBar } from './components/SelectionBar'
 import { SettingsPanel } from './components/SettingsPanel'
+import { SortMenu } from './components/SortMenu'
 import { TextPeek } from './components/TextPeek'
 import { TitleBar } from './components/TitleBar'
 
@@ -37,8 +42,12 @@ export default function App() {
   // 面板会先弹回旧值再跳过去，看起来像没拖动成功
   const [alphaPreview, setAlphaPreview] = useState<number | null>(null)
   const [update, setUpdate] = useState<UpdateState | null>(null)
+  // 整理模式：卡片拖拽只改顺序，不再把文件拖到资源管理器
+  const [arranging, setArranging] = useState(false)
 
   const internalDrag = useRef(false)
+  /** 分组胶囊正在换位；由 GroupTabs 通过回调置位 */
+  const groupDrag = useRef(false)
   const dragDepth = useRef(0)
   const searchRef = useRef<HTMLInputElement | null>(null)
   const toastSeq = useRef(0)
@@ -105,22 +114,54 @@ export default function App() {
   const allItems = state?.items
   const groups = state?.groups ?? []
 
-  const activeGroup = groupId && groups.some((group) => group.id === groupId) ? groupId : null
+  // 「常用」是虚拟分组，activeGroup 用 FREQUENT_ID 表示它被选中
+  const activeGroup =
+    groupId === FREQUENT_ID
+      ? FREQUENT_ID
+      : groupId && groups.some((group) => group.id === groupId)
+        ? groupId
+        : null
+
+  /** 跨所有分组聚合的「打开最多」前 N 项 */
+  const frequent = useMemo(() => {
+    if (!allItems) return []
+    return [...allItems]
+      .filter((item) => item.openCount > 0)
+      .sort((a, b) => {
+        if (a.openCount !== b.openCount) return b.openCount - a.openCount
+        return b.lastOpenedAt - a.lastOpenedAt
+      })
+      .slice(0, FREQUENT_LIMIT)
+  }, [allItems])
 
   const visible = useMemo(() => {
     if (!allItems) return []
     const keyword = query.trim().toLowerCase()
+    const initialsMode = isInitialsQuery(keyword)
 
-    return allItems.filter((item) => {
-      if (activeGroup && item.groupId !== activeGroup) return false
+    const matches = (item: (typeof allItems)[number]): boolean => {
       if (!keyword) return true
-      return (
+      if (
         item.title.toLowerCase().includes(keyword) ||
         item.target.toLowerCase().includes(keyword) ||
         item.note.toLowerCase().includes(keyword)
-      )
+      ) {
+        return true
+      }
+      // 首字母匹配只作用于名称：把路径也拿去做拼音转换，噪音会盖过结果
+      return initialsMode && initialsOf(item.title).includes(keyword)
+    }
+
+    // 「常用」的语义就是「按点击量排」，顺序来自 frequent，不能拿 allItems 的
+    // 顺序去过滤 —— 那样过滤出来是「最近添加」的次序，看着完全不像常用
+    if (activeGroup === FREQUENT_ID) return frequent.filter(matches)
+
+    const matched = allItems.filter((item) => {
+      if (activeGroup && item.groupId !== activeGroup) return false
+      return matches(item)
     })
-  }, [allItems, activeGroup, query])
+    return sortItems(matched, state?.settings.sortBy ?? 'recent')
+  }, [allItems, activeGroup, query, frequent, state?.settings.sortBy])
 
   // 选中集合里可能有已经被删掉、或者被搜索/切分组挡在视口外的条目，
   // 批量操作只该作用在「当前看得见的那些」—— 否则用户会删掉自己没看见的东西
@@ -147,6 +188,38 @@ export default function App() {
   const patchSettings = useCallback(
     (patch: Partial<Settings>) => {
       void run(() => window.deskbox.patchSettings(patch))
+    },
+    [run]
+  )
+
+  /** 切换排序方式。选「手动整理」以外的项时顺手退出整理模式，两种状态别打架 */
+  const changeSort = useCallback(
+    (sortBy: ItemSort) => {
+      if (sortBy !== 'custom') setArranging(false)
+      patchSettings({ sortBy })
+    },
+    [patchSettings]
+  )
+
+  const toggleArrange = useCallback(() => {
+    // 「常用」是按点击量现算出来的，顺序没有落盘的位置，进去也拖不动
+    if (activeGroup === FREQUENT_ID) {
+      toastSeq.current += 1
+      setToast({ text: '「常用」按点击量自动排序，不用手动整理', tone: 'warn', seq: toastSeq.current })
+      return
+    }
+    setArranging((prev) => {
+      const next = !prev
+      // 进入整理模式就切到手动顺序 —— 否则用户拖完，界面还按「最近添加」重排，
+      // 拖了半天看不出任何变化
+      if (next) patchSettings({ sortBy: 'custom' })
+      return next
+    })
+  }, [activeGroup, patchSettings])
+
+  const reorderVisible = useCallback(
+    (ids: string[]) => {
+      void run(() => window.deskbox.reorderItems(ids))
     },
     [run]
   )
@@ -207,19 +280,20 @@ export default function App() {
     [visible]
   )
 
-  /** 右键：点在选中集合里就作用于整组，点在集合外则先选中这一张 */
+  /**
+   * 右键：只作用于被点的这一张，并顺手清空选中集合。
+   *
+   * 之前的行为是「点在选中集合里就整组生效」，看起来贴心，实际很别扭：
+   * 用户选中了五张，右键其中一张只想改这一张，菜单却冒出「移除这 5 项」，
+   * 手一抖就删了一片。多选的批量操作已经有一条独立的 SelectionBar，
+   * 右键就让它老老实实做单条操作 —— 同时把选中态收掉，菜单一关就回到干净状态。
+   */
   const showItemMenu = useCallback(
     (id: string) => {
-      const batch = selectedVisible.includes(id) && selectedVisible.length > 1
-      if (!batch) {
-        setSelectedIds([id])
-        anchorId.current = id
-        window.deskbox.showItemMenu(id)
-        return
-      }
-      window.deskbox.showBatchMenu(selectedVisible)
+      clearSelection()
+      window.deskbox.showItemMenu(id)
     },
-    [selectedVisible]
+    [clearSelection]
   )
 
   /** 双击片段 → 只读预览弹窗；看完再决定要不要复制 */
@@ -307,21 +381,38 @@ export default function App() {
 
   /* ---------------------------------------------------------------- 拖放 */
 
+  /**
+   * 界面内部的拖拽（卡片排序、分组换位）不能被当成「从外面拖东西进来」。
+   *
+   * 这两种拖拽都往 dataTransfer 里塞了 id 当占位，事件又会一路冒泡到 shell；
+   * 不拦一道的话，拖完一个分组胶囊就会凭空多出一条 target 是分组 id 的
+   * 文本片段 —— 用户看到的是「我拖了下分组，盒子里多了个 g4」。
+   *
+   * 判据用自定义 MIME 类型而不是「拖拽中的标志位」：目标元素的 onDrop 会
+   * 先执行、把标志清掉，等事件冒泡到 shell 时标志已经是 false 了，
+   * 靠它拦不住。types 在整条拖拽链路里始终有效，不受回调顺序影响。
+   */
+  const isInternalDragType = (event: DragEvent): boolean =>
+    isInternalDrag(Array.from(event.dataTransfer.types))
+
+  const suppressDrop = (event: DragEvent): boolean =>
+    arranging || internalDrag.current || groupDrag.current || isInternalDragType(event)
+
   const handleDragEnter = (event: DragEvent): void => {
-    if (internalDrag.current) return
+    if (suppressDrop(event)) return
     event.preventDefault()
     dragDepth.current += 1
     if (dragDepth.current === 1) setDragging(true)
   }
 
   const handleDragOver = (event: DragEvent): void => {
-    if (internalDrag.current) return
+    if (suppressDrop(event)) return
     event.preventDefault()
     event.dataTransfer.dropEffect = 'copy'
   }
 
-  const handleDragLeave = (): void => {
-    if (internalDrag.current) return
+  const handleDragLeave = (event: DragEvent): void => {
+    if (suppressDrop(event)) return
     dragDepth.current = Math.max(0, dragDepth.current - 1)
     if (dragDepth.current === 0) setDragging(false)
   }
@@ -331,14 +422,20 @@ export default function App() {
     dragDepth.current = 0
     setDragging(false)
 
+    if (arranging || isInternalDragType(event)) return
+
     if (internalDrag.current) {
       internalDrag.current = false
       return
     }
 
-    const target = activeGroup ?? undefined
+    if (groupDrag.current) {
+      groupDrag.current = false
+      return
+    }
 
-    // 1) 真实文件：走 getPathForFile，Electron 32 之后 File.path 已经没了
+    // 「常用」是虚拟分组，往里拖东西会落空 —— 一律落到第一个真实分组
+    const target = activeGroup && activeGroup !== FREQUENT_ID ? activeGroup : undefined
     const files = Array.from(event.dataTransfer.files)
     if (files.length > 0) {
       const paths = files
@@ -487,6 +584,7 @@ export default function App() {
             counts={counts}
             total={state.items.length}
             active={activeGroup}
+            frequentCount={frequent.length}
             onSelect={(id) => {
               setGroupId(id)
               clearSelection()
@@ -497,9 +595,41 @@ export default function App() {
               if (activeGroup === id) setGroupId(null)
               void run(() => window.deskbox.removeGroup(id))
             }}
+            onReorder={(ids) => void run(() => window.deskbox.reorderGroups(ids))}
+            onDragStateChange={(active) => {
+              groupDrag.current = active
+            }}
           />
 
-          <SearchBar value={query} onChange={setQuery} inputRef={searchRef} />
+          <SearchBar
+            value={query}
+            onChange={setQuery}
+            inputRef={searchRef}
+            trailing={
+              <SortMenu
+                sortBy={state.settings.sortBy}
+                arranging={arranging}
+                onChange={changeSort}
+                onToggleArrange={toggleArrange}
+              />
+            }
+          />
+
+          {arranging && (
+            <div className="arrange-hint">
+              <span className="arrange-hint__text">拖拽卡片调整顺序 · 固定项恒在最前</span>
+              <button
+                type="button"
+                className="arrange-hint__done"
+                onClick={() => {
+                  setArranging(false)
+                  patchSettings({ sortBy: 'custom' })
+                }}
+              >
+                完成
+              </button>
+            </div>
+          )}
 
           <div
             className="board"
@@ -520,6 +650,8 @@ export default function App() {
                 items={visible}
                 compact={state.settings.density === 'compact'}
                 selectedIds={new Set(selectedVisible)}
+                arranging={arranging}
+                onReorder={reorderVisible}
                 onSelect={selectItem}
                 onOpen={openItem}
                 onPreview={setPeekId}
@@ -578,7 +710,7 @@ export default function App() {
           onClose={() => setSheet('none')}
           onSubmit={(value) => {
             const kind = sheet === 'link' ? 'link' : 'text'
-            const target = activeGroup ?? undefined
+            const target = activeGroup && activeGroup !== FREQUENT_ID ? activeGroup : undefined
             setSheet('none')
             void run(() => window.deskbox.addItem({ kind, target: value, groupId: target }))
           }}

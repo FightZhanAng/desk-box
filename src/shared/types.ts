@@ -9,6 +9,13 @@ export type ItemKind = 'file' | 'folder' | 'link' | 'text'
 /** 面板配色方案 */
 export type ThemeId = 'wood' | 'night' | 'celadon' | 'indigo'
 
+/**
+ * 分组内的排序方式。
+ * custom 是用户亲手拖出来的顺序，其余三种是按字段现算 —— 固定项在任何
+ * 方式下都恒置顶，那是「钉住」这个动作本身的含义，不该被排序方式推翻。
+ */
+export type ItemSort = 'custom' | 'recent' | 'opened' | 'name'
+
 /** 收纳项。落盘时不含 icon，icon 由主进程在构建状态时临时附加。 */
 export interface Item {
   id: string
@@ -23,6 +30,8 @@ export interface Item {
   createdAt: number
   lastOpenedAt: number
   openCount: number
+  /** 手动排序位次，越小越靠前；相等时退回 createdAt 倒序 */
+  order: number
 }
 
 /** 带派生信息的收纳项，仅存在于 IPC 传输层 */
@@ -57,6 +66,8 @@ export interface Settings {
   autoCheckUpdate: boolean
   /** 发现新版本后自动下载（慢网络下建议关掉，手动点） */
   autoDownloadUpdate: boolean
+  /** 分组内的排序方式 */
+  sortBy: ItemSort
 }
 
 export interface WindowBounds {
@@ -151,11 +162,13 @@ export const IPC = {
   itemRemoveMany: 'item:remove-many',
   itemOpenMany: 'item:open-many',
   itemMenuMany: 'item:menu-many',
+  itemReorder: 'item:reorder',
   itemDrag: 'item:drag',
   itemIcon: 'item:icon',
   groupAdd: 'group:add',
   groupRename: 'group:rename',
   groupRemove: 'group:remove',
+  groupReorder: 'group:reorder',
   settingsPatch: 'settings:patch',
   pickFiles: 'dialog:pick-files',
   pickFolder: 'dialog:pick-folder',

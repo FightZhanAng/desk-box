@@ -22,6 +22,8 @@ const api: DeskboxApi = {
   removeItems: (ids: string[]) =>
     ipcRenderer.invoke(IPC.itemRemoveMany, ids) as Promise<ActionResult>,
   openItems: (ids: string[]) => ipcRenderer.invoke(IPC.itemOpenMany, ids) as Promise<ActionResult>,
+  reorderItems: (ids: string[]) =>
+    ipcRenderer.invoke(IPC.itemReorder, ids) as Promise<ActionResult>,
 
   showItemMenu: (id: string) => {
     ipcRenderer.send(IPC.itemMenu, id)
@@ -37,6 +39,8 @@ const api: DeskboxApi = {
   renameGroup: (id: string, name: string) =>
     ipcRenderer.invoke(IPC.groupRename, id, name) as Promise<ActionResult>,
   removeGroup: (id: string) => ipcRenderer.invoke(IPC.groupRemove, id) as Promise<ActionResult>,
+  reorderGroups: (ids: string[]) =>
+    ipcRenderer.invoke(IPC.groupReorder, ids) as Promise<ActionResult>,
 
   patchSettings: (patch: Partial<Settings>) =>
     ipcRenderer.invoke(IPC.settingsPatch, patch) as Promise<ActionResult>,

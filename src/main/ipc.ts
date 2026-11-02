@@ -22,6 +22,8 @@ import {
   removeItem,
   removeItemsConfirmed,
   renameGroup,
+  reorderGroups,
+  reorderItems,
   revealItem,
   showBatchMenu,
   showItemMenu,
@@ -125,6 +127,15 @@ export function registerIpc(): void {
     })
   )
 
+  ipcMain.handle(IPC.itemReorder, (_event, ids: string[]) =>
+    withState(() => {
+      const list = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []
+      const changed = reorderItems(list)
+      if (changed === 0) return '顺序没有变化'
+      return '已保存新顺序'
+    })
+  )
+
   ipcMain.handle(IPC.itemOpen, (_event, id: string) =>
     withState(async () => {
       const error = await openItem(id)
@@ -175,6 +186,15 @@ export function registerIpc(): void {
     withState(() => {
       if (!removeGroup(id)) throw new Error('至少要保留一个分组')
       return '分组已删除，里面的条目已移到其他分组'
+    })
+  )
+
+  ipcMain.handle(IPC.groupReorder, (_event, ids: string[]) =>
+    withState(() => {
+      const list = Array.isArray(ids) ? ids.filter((id) => typeof id === 'string') : []
+      const changed = reorderGroups(list)
+      if (changed === 0) return '分组顺序没有变化'
+      return '已保存分组顺序'
     })
   )
 

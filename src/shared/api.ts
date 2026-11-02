@@ -28,6 +28,12 @@ export interface DeskboxApi {
   /** 批量打开：文件/文件夹走系统默认程序，链接走浏览器，文本片段跳过 */
   openItems(ids: string[]): Promise<ActionResult>
 
+  /**
+   * 手动排序：按给定顺序重排这些条目，只改动它们之间的位次。
+   * 传的是「整理模式下当前看得见的那些 id」，按显示顺序排列。
+   */
+  reorderItems(ids: string[]): Promise<ActionResult>
+
   /** 弹出原生右键菜单；无返回值，菜单走主进程 */
   showItemMenu(id: string): void
   /** 多选状态下的右键菜单：菜单项作用于整组，单条时主进程会自动退回单条菜单 */
@@ -38,6 +44,8 @@ export interface DeskboxApi {
   addGroup(name: string): Promise<ActionResult>
   renameGroup(id: string, name: string): Promise<ActionResult>
   removeGroup(id: string): Promise<ActionResult>
+  /** 按给定顺序重排分组（拖拽胶囊或右键左移/右移都会走这里） */
+  reorderGroups(ids: string[]): Promise<ActionResult>
 
   patchSettings(patch: Partial<Settings>): Promise<ActionResult>
 
