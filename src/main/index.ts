@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { IPC } from '../shared/types'
 import { bootstrapHotkey, unregisterHotkey } from './hotkey'
 import { registerIpc } from './ipc'
+import { sanitizeInheritedEnv } from './launch-env'
 import { createTray } from './tray'
 import { flushNow, getData } from './store'
 import { disposeUpdater, initUpdater } from './updater'
@@ -11,6 +12,9 @@ const APP_ID = 'com.tomcato.desk-box'
 
 /** 「打开发布页」用的地址，也是托盘里那句「有新版本」的落地页 */
 const RELEASE_PAGE = 'https://github.com/FightZhanAng/desk-box/releases/latest'
+
+// 先把启动者塞进来的环境变量摘掉，否则从盒子里打开的应用会带着它们白屏
+sanitizeInheritedEnv()
 
 /** 已经有实例在跑时，第二次启动只是把已有窗口叫出来 */
 if (!app.requestSingleInstanceLock()) {

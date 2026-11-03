@@ -12,6 +12,8 @@ import { getActiveHotkey, registerHotkey } from './hotkey'
 import { appIconPath } from './paths'
 import { getData, replaceData, save } from './store'
 import { applyUpdateSettings } from './updater'
+import { splitIconLocation, urlIconSource } from './url-icon'
+import type { IconSource } from './url-icon'
 import { applyAlwaysOnTop, getWindow, lockAutoHide } from './window'
 import { extractIcon } from './win-icon'
 
@@ -888,6 +890,9 @@ const iconCache = new Map<string, string | null>()
  */
 const ICON_SIZE = 64
 
+/** 图标源本身就是一张图（.ico / .png / .jpg）：直接读文件，别去问 shell */
+const RASTER_ICON = /\.(ico|png|jpe?g|bmp)$/i
+
 /**
  * 取图标前先算出「该问谁要图标」。
  *
@@ -897,25 +902,9 @@ const ICON_SIZE = 64
  *
  * 光有路径还不够，索引也得带上：桌面图标是 (IconLocation 文件, 索引) 这一对决定的，
  * 比如夸克网盘是 quark.exe 的第 8 个图标。只取路径会把索引丢掉，取到的就是第 0 个。
+ *
+ * .url（Internet 快捷方式）同理，图标写在文本的 IconFile 里，见 url-icon.ts。
  */
-interface IconSource {
-  file: string
-  index: number
-}
-
-/**
- * Electron 的 readShortcutLink 把 IconLocation 拆成了两个字段：
- * `icon` 只有路径（"shell32.dll"），索引单独在 `iconIndex`。
- * 但老版本/手工写的快捷方式偶尔把 ",14" 塞在 icon 里，所以两种都要认。
- */
-function splitIconLocation(value: unknown, index: unknown): { file: string; index: number } {
-  const numeric = typeof index === 'number' && Number.isFinite(index) ? index : 0
-  if (typeof value !== 'string' || !value.trim()) return { file: '', index: numeric }
-  const match = value.match(/^(.*?)(?:,\s*(-?\d+))\s*$/)
-  if (!match) return { file: value.trim(), index: numeric }
-  // icon 自带索引时以它为准（iconIndex 此时通常是 0，是 Electron 的默认值）
-  return { file: match[1].trim(), index: Number.parseInt(match[2], 10) || 0 }
-}
 
 /**
  * 相对路径的 IconLocation（典型是 "shell32.dll,14"）要按 System32 解析，
@@ -948,6 +937,12 @@ function isShortcutToDirectory(ext: string, target: string): boolean {
 }
 
 function iconSource(target: string, ext: string): IconSource {
+  if (ext === 'url') {
+    // IconFile 指向的图标往往就是这个快捷方式唯一的「身份」，不用它就只能给通用占位图
+    const fromUrl = urlIconSource(target)
+    if (fromUrl) return fromUrl
+    return { file: target, index: 0 }
+  }
   if (ext !== 'lnk') return { file: target, index: 0 }
   try {
     const link = shell.readShortcutLink(target)
@@ -1044,12 +1039,12 @@ export async function getItemIcon(id: string): Promise<string | null> {
     // 只能交给 shell（虽然拿不到指定索引，但总比空白强）
     let image = /\.dll$/i.test(source.file) ? null : extractIcon(source.file, source.index, ICON_SIZE)
 
-    // 自己解析不出来（系统 DLL / 少见格式 / 资源损坏）才退回 shell
+    // 自己解析不出来（系统 DLL / 少见格式 / 资源损坏）才退回 shell。
+    // 图标源是图片文件时直接读：.url 可能指到 png/jpg（Steam 库缓存就是），
+    // 问 shell 只会得到一张「图片文件」的通用白纸图。
     if (!image || image.isEmpty()) {
-      image =
-        ext === 'ico'
-          ? nativeImage.createFromPath(source.file)
-          : await app.getFileIcon(source.file, { size: 'large' })
+      if (RASTER_ICON.test(source.file)) image = nativeImage.createFromPath(source.file)
+      if (!image || image.isEmpty()) image = await app.getFileIcon(source.file, { size: 'large' })
     }
 
     // 取到的和系统那张通用占位图一模一样 → 等于没图标，试试同目录的 ico
@@ -1065,9 +1060,10 @@ export async function getItemIcon(id: string): Promise<string | null> {
       }
     }
 
-    // 统一成卡片用的尺寸：图标可能是 256×256，直接塞 data URL 又大又糊
+    // 统一成卡片用的尺寸：图标可能是 256×256，直接塞 data URL 又大又糊。
+    // 只给宽度，让它自己按比例缩 —— 库缓存里的游戏图标不一定是正方形
     if (!image.isEmpty() && image.getSize().width > ICON_SIZE) {
-      image = image.resize({ width: ICON_SIZE, height: ICON_SIZE, quality: 'best' })
+      image = image.resize({ width: ICON_SIZE, quality: 'best' })
     }
 
     const url = image.isEmpty() ? null : image.toDataURL()
