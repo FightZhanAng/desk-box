@@ -9,6 +9,7 @@ import { clampOpacity, SORT_IDS, THEME_IDS } from '../shared/defaults'
 import { hasRealIcon } from '../shared/icons'
 import { hostOf, normalizeUrl } from '../shared/url'
 import { getActiveHotkey, registerHotkey } from './hotkey'
+import { applyLaunchAtLogin } from './login-item'
 import { appIconPath } from './paths'
 import { getData, replaceData, save } from './store'
 import { applyUpdateSettings } from './updater'
@@ -592,11 +593,7 @@ export function patchSettings(patch: Partial<Settings>): void {
     applyAlwaysOnTop(patch.alwaysOnTop)
   }
   if (typeof patch.launchAtLogin === 'boolean') {
-    try {
-      app.setLoginItemSettings({ openAtLogin: patch.launchAtLogin })
-    } catch {
-      /* 部分环境（无权限的便携版）不支持，静默失败即可 */
-    }
+    applyLaunchAtLogin(patch.launchAtLogin)
   }
   if (hotkeyChanged) {
     registerHotkey(data.settings.hotkey)

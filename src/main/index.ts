@@ -3,6 +3,7 @@ import { IPC } from '../shared/types'
 import { bootstrapHotkey, unregisterHotkey } from './hotkey'
 import { registerIpc } from './ipc'
 import { sanitizeInheritedEnv } from './launch-env'
+import { applyLaunchAtLogin } from './login-item'
 import { createTray } from './tray'
 import { flushNow, getData } from './store'
 import { disposeUpdater, initUpdater } from './updater'
@@ -27,6 +28,10 @@ if (!app.requestSingleInstanceLock()) {
   })
 
   void app.whenReady().then(() => {
+    // 按当前设置重写一次自启动项。老版本在开发模式下把裸 electron.exe 写进了
+    // 注册表（开机只弹 Electron 欢迎页），这一步顺手把脏值纠正回来。
+    applyLaunchAtLogin(getData().settings.launchAtLogin)
+
     registerIpc()
     createMainWindow()
     createTray()

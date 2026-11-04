@@ -1,6 +1,7 @@
 import { app, Menu, nativeImage, shell, Tray } from 'electron'
 import type { MenuItemConstructorOptions } from 'electron'
 import { addItem, promptAddFiles, promptAddFolder, pushState, readClipboardText } from './actions'
+import { applyLaunchAtLogin } from './login-item'
 import { appIconPath, trayIconPath } from './paths'
 import { dataFile, getData, save } from './store'
 import { toggleWindow } from './window'
@@ -75,11 +76,7 @@ export function refreshTrayMenu(): void {
         const data = getData()
         data.settings.launchAtLogin = menuItem.checked
         save(data)
-        try {
-          app.setLoginItemSettings({ openAtLogin: menuItem.checked })
-        } catch {
-          /* 便携版可能不支持 */
-        }
+        applyLaunchAtLogin(menuItem.checked)
         pushState()
         refreshTrayMenu()
       }
