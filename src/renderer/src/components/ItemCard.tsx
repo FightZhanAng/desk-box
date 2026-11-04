@@ -54,7 +54,7 @@ export function ItemCard({
   const canExport = item.kind === 'file' || item.kind === 'folder'
   const draggable = arranging ? !item.pinned : canExport
   // 快捷方式 / 可执行文件显示系统原图标；拿不到就退回自绘矢量图
-  const realIcon = useRealIcon(item)
+  const { url: realIcon, loading: iconLoading } = useRealIcon(item)
 
   return (
     <button
@@ -122,6 +122,8 @@ export function ItemCard({
       <span className="tile__visual">
         {realIcon ? (
           <img className="glyph-img" src={realIcon} alt="" draggable={false} />
+        ) : iconLoading ? (
+          <span className="glyph-loading" aria-hidden="true" />
         ) : (
           <ItemGlyph item={item} />
         )}

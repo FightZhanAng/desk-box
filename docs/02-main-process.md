@@ -501,10 +501,15 @@ export function applyLaunchAtLogin(enabled: boolean): void
 | --- | --- |
 | `ELECTRON_RUN_AS_NODE` | 子进程退化成普通 Node，Electron 应用开不出窗口 |
 | `NODE_OPTIONS` | 注入别人的 shim 到所有子进程 |
+| `NODE_ENV` | dev 下是 `development`，子进程会误走开发/调试分支 |
+| `NODE_PATH` | 全局模块搜索路径指向启动者的依赖 |
 | `NODE_EXTRA_CA_CERTS` | 继承启动者的证书链 |
 | `ELECTRON_NO_ASAR` | 打包应用找不到资源，白屏 |
+| `ELECTRON_RENDERER_URL` | dev 下 electron-vite 注入的页面地址；其它 electron-vite 应用会误当自己的页面，白屏 |
 | `ELECTRON_ENABLE_LOGGING` / `ELECTRON_LOG_FILE` / `ELECTRON_DEFAULT_ERROR_MODE` | 多余日志/错误框 |
 | `WORKBUDDY_*` / `CODEBUDDY_*` / `CLAUDE_*` | 子进程误判自己的启动方式，典型表现为白屏 |
+
+`ELECTRON_RENDERER_URL` 会在清理前先存进 `getDevRendererUrl()`，`window.ts` 用它加载 dev server，所以清理不影响收纳盒自己的窗口。
 
 只清理 `process.env`，影响之后新建的子进程；应用自身已经启动，不受影响。
 

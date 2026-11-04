@@ -865,6 +865,26 @@ textarea {
   user-select: none;
 }
 
+/*
+ * 系统图标还在路上时的占位骨架。
+ * 直接画矢量图会让人以为图标已经加载好了，真图标替换进来时反而像一次跳变；
+ * 一块会呼吸的浅色方块才是「正在取图标」的明确信号。
+ */
+.glyph-loading {
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--hair);
+  animation: glyph-loading 1.4s ease-in-out infinite;
+}
+
+.grid.is-compact .glyph-loading {
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+}
+
 /* 链接 / 文本：色块 + 首字母 */
 .glyph-chip {
   width: 100%;
@@ -2172,6 +2192,16 @@ textarea {
   to {
     opacity: 1;
     transform: translateY(0);
+  }
+}
+
+@keyframes glyph-loading {
+  0%,
+  100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.75;
   }
 }
 

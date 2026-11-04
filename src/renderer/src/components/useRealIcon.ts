@@ -10,6 +10,9 @@ import type { ItemView } from '@shared/types'
  */
 const cache = new Map<string, string | null>()
 
+/** 同一 target 的请求只发一次：卡片重挂载时别把还没回来的请求再发一遍 */
+const pending = new Map<string, Promise<string | null>>()
+
 /** 只有这几类文件值得去问系统要图标，其余用自绘矢量图（见 shared/icons.ts） */
 function wants(item: ItemView): boolean {
   if (!item.exists) return false
@@ -19,40 +22,68 @@ function wants(item: ItemView): boolean {
   return hasRealIcon(item.ext)
 }
 
-export function useRealIcon(item: ItemView): string | null {
+function load(id: string, target: string): Promise<string | null> {
+  const inflight = pending.get(target)
+  if (inflight) return inflight
+
+  const task = window.deskbox
+    .getItemIcon(id)
+    .then((value) => {
+      cache.set(target, value)
+      return value
+    })
+    .catch(() => {
+      // 取不到就记成 null，别每次重渲染再问一遍
+      cache.set(target, null)
+      return null
+    })
+    .finally(() => {
+      pending.delete(target)
+    })
+
+  pending.set(target, task)
+  return task
+}
+
+export interface RealIcon {
+  url: string | null
+  /** 正在向主进程要图标：卡片先画占位骨架，别让用户对着通用图标干等 */
+  loading: boolean
+}
+
+export function useRealIcon(item: ItemView): RealIcon {
   const wanted = wants(item)
   const [url, setUrl] = useState<string | null>(() =>
     wanted ? (cache.get(item.target) ?? null) : null
   )
+  const [loading, setLoading] = useState<boolean>(() => wanted && !cache.has(item.target))
 
   useEffect(() => {
     if (!wanted) {
       setUrl(null)
+      setLoading(false)
       return undefined
     }
 
-    const cached = cache.get(item.target)
-    if (cached !== undefined) {
-      setUrl(cached)
+    if (cache.has(item.target)) {
+      setUrl(cache.get(item.target) ?? null)
+      setLoading(false)
       return undefined
     }
 
     let alive = true
-    void window.deskbox
-      .getItemIcon(item.id)
-      .then((value) => {
-        cache.set(item.target, value)
-        if (alive) setUrl(value)
-      })
-      .catch(() => {
-        // 取不到就记成 null，别每次重渲染再问一遍
-        cache.set(item.target, null)
-      })
+    setUrl(null)
+    setLoading(true)
+    void load(item.id, item.target).then((value) => {
+      if (!alive) return
+      setUrl(value)
+      setLoading(false)
+    })
 
     return () => {
       alive = false
     }
   }, [item.id, item.target, wanted])
 
-  return url
+  return { url, loading }
 }

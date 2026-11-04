@@ -14,7 +14,7 @@
  * 选帧策略与资源管理器一致：优先精确尺寸，其次不超过目标尺寸的最大帧。
  */
 
-import { readFileSync } from 'node:fs'
+import { closeSync, fstatSync, openSync, readFileSync, readSync } from 'node:fs'
 import { nativeImage } from 'electron'
 import type { NativeImage } from 'electron'
 
@@ -42,42 +42,103 @@ interface ResourceEntry {
   size: number
 }
 
-function parsePE(buf: Buffer): PE | null {
-  if (buf.length < 0x40 || buf.readUInt16LE(0) !== 0x5a4d) return null
-  const peOff = buf.readUInt32LE(0x3c)
-  if (peOff + 24 > buf.length || buf.readUInt32LE(peOff) !== 0x4550) return null
+/** 从文件里按字节区间读取；越界部分自动裁掉 */
+function readRange(fd: number, start: number, length: number, fileSize: number): Buffer {
+  const size = Math.max(0, Math.min(length, fileSize - start))
+  if (size <= 0) return Buffer.alloc(0)
+  const out = Buffer.alloc(size)
+  let filled = 0
+  while (filled < size) {
+    const got = readSync(fd, out, filled, size - filled, start + filled)
+    if (got <= 0) break
+    filled += got
+  }
+  return filled === size ? out : out.subarray(0, filled)
+}
 
-  const nSec = buf.readUInt16LE(peOff + 6)
-  const optSize = buf.readUInt16LE(peOff + 20)
-  const optOff = peOff + 24
-  const magic = buf.readUInt16LE(optOff)
-  // PE32 与 PE32+ 的 data directory 起始偏移不同
-  const ddOff = optOff + (magic === 0x20b ? 112 : 96)
-  const rsrcRva = buf.readUInt32LE(ddOff + 16)
-  if (!rsrcRva) return null
+function readHead(file: string, length: number): Buffer | null {
+  let fd: number
+  try {
+    fd = openSync(file, 'r')
+  } catch {
+    return null
+  }
+  try {
+    return readRange(fd, 0, length, fstatSync(fd).size)
+  } catch {
+    return null
+  } finally {
+    closeSync(fd)
+  }
+}
 
-  const secOff = optOff + optSize
-  const sections: PESection[] = []
-  for (let i = 0; i < nSec; i++) {
-    const s = secOff + i * 40
-    if (s + 40 > buf.length) break
-    sections.push({
-      va: buf.readUInt32LE(s + 12),
-      vs: buf.readUInt32LE(s + 8),
-      raw: buf.readUInt32LE(s + 20),
-      rawSize: buf.readUInt32LE(s + 16)
-    })
+/**
+ * 打开 PE 文件，只把资源节（.rsrc）读进内存。
+ *
+ * 之前是 readFileSync 整个文件：图标只需要资源节里的几 MB，而 Steam / VS Code
+ * 这类 exe 动辄一两百 MB，几十个快捷方式连着读会把主线程堵上一两秒。
+ *
+ * 资源目录里的 RVA 全部落在 .rsrc 内，所以把节内偏移当作文件偏移重新建一张
+ * 「只有这一节」的映射表，后面的目录遍历和帧解码代码完全不用改。
+ */
+function openResourceSection(file: string): PE | null {
+  let fd: number
+  try {
+    fd = openSync(file, 'r')
+  } catch {
+    return null
   }
 
-  let rsrcRaw = 0
-  for (const sec of sections) {
-    if (rsrcRva >= sec.va && rsrcRva < sec.va + Math.max(sec.vs, sec.rawSize, 1)) {
-      rsrcRaw = sec.raw + (rsrcRva - sec.va)
-      break
+  try {
+    const fileSize = fstatSync(fd).size
+    // 头部（DOS 头 + COFF + 可选头 + 节表）通常不到 2KB，读 8KB 足够
+    const head = readRange(fd, 0, 8192, fileSize)
+    if (head.length < 0x40 || head.readUInt16LE(0) !== 0x5a4d) return null
+    const peOff = head.readUInt32LE(0x3c)
+    if (peOff + 24 > head.length || head.readUInt32LE(peOff) !== 0x4550) return null
+
+    const nSec = head.readUInt16LE(peOff + 6)
+    const optSize = head.readUInt16LE(peOff + 20)
+    const optOff = peOff + 24
+    if (optOff >= head.length) return null
+    const magic = head.readUInt16LE(optOff)
+    // PE32 与 PE32+ 的 data directory 起始偏移不同
+    const ddOff = optOff + (magic === 0x20b ? 112 : 96)
+    if (ddOff + 20 > head.length) return null
+    const rsrcRva = head.readUInt32LE(ddOff + 16)
+    if (!rsrcRva) return null
+
+    const secOff = optOff + optSize
+    for (let i = 0; i < nSec; i++) {
+      const s = secOff + i * 40
+      if (s + 40 > head.length) break
+      const sec: PESection = {
+        va: head.readUInt32LE(s + 12),
+        vs: head.readUInt32LE(s + 8),
+        raw: head.readUInt32LE(s + 20),
+        rawSize: head.readUInt32LE(s + 16)
+      }
+      if (rsrcRva < sec.va || rsrcRva >= sec.va + Math.max(sec.vs, sec.rawSize, 1)) continue
+
+      const within = rsrcRva - sec.va
+      const start = sec.raw + within
+      const avail = Math.min(sec.rawSize - within, fileSize - start)
+      if (avail <= 0) return null
+      const rsrc = readRange(fd, start, avail, fileSize)
+      if (rsrc.length < 16) return null
+
+      return {
+        buf: rsrc,
+        sections: [{ va: rsrcRva, vs: avail, raw: 0, rawSize: avail }],
+        rsrcRaw: 0
+      }
     }
+    return null
+  } catch {
+    return null
+  } finally {
+    closeSync(fd)
   }
-  if (!rsrcRaw) return null
-  return { buf, sections, rsrcRaw }
 }
 
 function rvaToOffset(pe: PE, rva: number): number {
@@ -499,17 +560,19 @@ function clusterIconFrames(pe: PE, icons: ResourceEntry[]): DecodedFrame[][] {
  * 也不要给一张占位框，更不能空着。
  */
 export function extractIcon(file: string, index = 0, target = 48): NativeImage | null {
-  let buf: Buffer
-  try {
-    buf = readFileSync(file)
-  } catch {
-    return null
+  const head = readHead(file, 8)
+  if (!head || head.length < 8) return null
+
+  // .ico 通常只有几十 KB，整体读进来最省事；exe 只读资源节
+  if (isIco(head)) {
+    try {
+      return iconFromIco(readFileSync(file), target)
+    } catch {
+      return null
+    }
   }
-  if (buf.length < 8) return null
 
-  if (isIco(buf)) return iconFromIco(buf, target)
-
-  const pe = parsePE(buf)
+  const pe = openResourceSection(file)
   if (!pe) return null
 
   // 有些程序（夸克网盘）会把几十个图标帧平铺在 exe 里、一个 GROUP_ICON 都不写，

@@ -88,7 +88,7 @@ Electron 43 + React 19 + TypeScript，`electron-vite` 构建，Windows / macOS �
 
 这里有个坑：直接对 `.lnk` 取图标，拿到的是系统画的「白纸 + 蓝箭头」占位图，所有快捷方式长得一模一样。所以先用 `shell.readShortcutLink` 解析出它指向的图标文件**和索引**，再按那一对去取 —— 桌面图标就是由 `(IconLocation, 索引)` 决定的，只取路径会把索引丢掉（夸克网盘是 `quark.exe` 的第 8 个图标）。
 
-取图标本身不走 `app.getFileIcon`，而是自己解 `.ico` 容器和 PE 资源（`src/main/win-icon.ts`）。原因是实测下来 shell 对很多程序都给不出正确图标：带 PNG 压缩帧的 exe 会给通用占位图，自定义 `.ico` 会给「图片文件」的白纸，而且它根本不支持指定索引。自己解就都能取对，PNG 帧和 DIB 帧（含 AND 掩码透明度）都处理。
+取图标本身不走 `app.getFileIcon`，而是自己解 `.ico` 容器和 PE 资源（`src/main/win-icon.ts`）。原因是实测下来 shell 对很多程序都给不出正确图标：带 PNG 压缩帧的 exe 会给通用占位图，自定义 `.ico` 会给「图片文件」的白纸，而且它根本不支持指定索引。自己解就都能取对，PNG 帧和 DIB 帧（含 AND 掩码透明度）都处理。PE 只读文件头和 `.rsrc` 资源节 —— Steam / VS Code 这类一两百 MB 的 exe 不会整个读进内存，几十个快捷方式并排进来也不至于卡住首屏。
 
 几个边界情况的处理：
 - **exe 里有几十个图标帧但一个 `GROUP_ICON` 都没写**（夸克网盘这种）：第 N 个图标是编译器私有排布，复现不出 Windows 的索引对应，此时退回主图标 —— 宁可给对得上的品牌 logo，也不给一个不相干的图。
@@ -97,7 +97,7 @@ Electron 43 + React 19 + TypeScript，`electron-vite` 构建，Windows / macOS �
 
 **其余类型一律画矢量图**：统一的「纸张 + 折角」底形压一个白色类型标记（图片 / 文档 / 表格 / 代码 / 压缩包 / 媒体 / 程序），文件夹是「背板 + 前片」两层同色的立体造型。系统给普通文档/图片的图标本身就是一张白纸，不如自己画的；而且几十个文件逐个问 shell 会肉眼可见地卡。
 
-图标按路径缓存，主进程一层（上限 300 条）渲染层一层，搜索、切分组都不会重复取。
+图标按路径缓存，主进程一层（上限 300 条）渲染层一层，搜索、切分组都不会重复取；同一路径的并发请求会合并。图标还没回来时卡片先显示呼吸占位块，不会先画一张通用图标再跳变。
 
 ### 更新
 
@@ -131,9 +131,9 @@ pnpm dist -- --mac      # dmg（未签名）
 
 ```bash
 pnpm version patch --no-git-tag-version   # 或者手改 package.json
-git commit -am "chore: bump 0.2.1"
-git tag v0.2.1
-git push origin main --tags
+git commit -am "chore: bump 0.3.2"
+git tag -a v0.3.2 -m "中文更新说明（会作为 Release 正文）"
+git push origin main --follow-tags
 ```
 
 [`.github/workflows/release.yml`](.github/workflows/release.yml) 接到 tag 后：`pnpm install --frozen-lockfile` → `pnpm typecheck` → `pnpm dist` → 把 `*-setup.exe`、`*-portable.exe`、`latest.yml`、`*.blockmap` 一起丢进 GitHub Release。`latest.yml` 和 `.blockmap` 是更新链路的一半，缺了客户端比不出新版本、也没法差量下载。

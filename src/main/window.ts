@@ -1,5 +1,6 @@
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'node:path'
+import { getDevRendererUrl } from './launch-env'
 import { appIconPath } from './paths'
 import { getData, save } from './store'
 
@@ -89,7 +90,8 @@ export function createMainWindow(): BrowserWindow {
 
   mainWindow.setAlwaysOnTop(data.settings.alwaysOnTop, 'floating')
 
-  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  // 环境变量在启动时已被清掉（防止被子进程继承），这里用清理前存下的副本
+  const rendererUrl = getDevRendererUrl()
   if (rendererUrl) {
     void mainWindow.loadURL(rendererUrl)
   } else {

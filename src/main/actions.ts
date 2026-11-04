@@ -1039,13 +1039,18 @@ export async function getItemIcon(id: string): Promise<string | null> {
     // 自己解析不出来（系统 DLL / 少见格式 / 资源损坏）才退回 shell。
     // 图标源是图片文件时直接读：.url 可能指到 png/jpg（Steam 库缓存就是），
     // 问 shell 只会得到一张「图片文件」的通用白纸图。
+    let viaShell = false
     if (!image || image.isEmpty()) {
       if (RASTER_ICON.test(source.file)) image = nativeImage.createFromPath(source.file)
-      if (!image || image.isEmpty()) image = await app.getFileIcon(source.file, { size: 'large' })
+      if (!image || image.isEmpty()) {
+        image = await app.getFileIcon(source.file, { size: 'large' })
+        viaShell = true
+      }
     }
 
-    // 取到的和系统那张通用占位图一模一样 → 等于没图标，试试同目录的 ico
-    if (!image.isEmpty()) {
+    // 取到的和系统那张通用占位图一模一样 → 等于没图标，试试同目录的 ico。
+    // 只有走 shell 兜底才可能拿到这张图；自研解析出来的图标不必再编码一次 PNG 去算哈希。
+    if (viaShell && !image.isEmpty()) {
       const generic = await genericHash()
       if (generic !== null && digest(image) === generic) {
         const fallback = siblingIcon(source.file)
