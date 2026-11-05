@@ -11,7 +11,7 @@ interface Props {
   onOpen: (id: string) => void
   /** 片段双击预览 */
   onPreview: (id: string) => void
-  onMenu: (id: string) => void
+  onMenu: (id: string, x: number, y: number) => void
   onDragBegin: () => void
   onDragEnd: () => void
   /** 整理模式：卡片拖拽只改顺序，不再拖到资源管理器 */
@@ -116,7 +116,7 @@ export function ItemGrid({
           onSelect={(event) => onSelect(item.id, event)}
           onOpen={() => onOpen(item.id)}
           onPreview={() => onPreview(item.id)}
-          onMenu={() => onMenu(item.id)}
+          onMenu={(x, y) => onMenu(item.id, x, y)}
           onDragBegin={onDragBegin}
           onDragEnd={onDragEnd}
           onArrangeStart={() => beginDrag(item.id)}

@@ -12,12 +12,15 @@ import { Dock } from './components/Dock'
 import { EmptyState } from './components/EmptyState'
 import { GroupTabs } from './components/GroupTabs'
 import { ItemGrid } from './components/ItemGrid'
+import { ItemMenu } from './components/ItemMenu'
+import type { ItemMenuAction } from './components/ItemMenu'
 import { SearchBar } from './components/SearchBar'
 import { SelectionBar } from './components/SelectionBar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { SortMenu } from './components/SortMenu'
 import { TextPeek } from './components/TextPeek'
 import { TitleBar } from './components/TitleBar'
+import { TooltipLayer } from './components/Tooltip'
 
 type SheetMode = 'none' | 'link' | 'text'
 
@@ -287,14 +290,55 @@ export default function App() {
    * 用户选中了五张，右键其中一张只想改这一张，菜单却冒出「移除这 5 项」，
    * 手一抖就删了一片。多选的批量操作已经有一条独立的 SelectionBar，
    * 右键就让它老老实实做单条操作 —— 同时把选中态收掉，菜单一关就回到干净状态。
+   *
+   * 菜单本身由渲染层画（ItemMenu），不再走主进程原生菜单：原生菜单是系统
+   * 画的白底硬线，跟这套玻璃面板对不上。位置用光标坐标，菜单自己负责贴边翻转。
    */
+  const [menu, setMenu] = useState<{ id: string; x: number; y: number } | null>(null)
   const showItemMenu = useCallback(
-    (id: string) => {
+    (id: string, x: number, y: number) => {
       clearSelection()
-      window.deskbox.showItemMenu(id)
+      setMenu({ id, x, y })
     },
     [clearSelection]
   )
+  const closeItemMenu = useCallback(() => setMenu(null), [])
+  const menuItem = useMemo(
+    () => (menu ? (allItems?.find((item) => item.id === menu.id) ?? null) : null),
+    [allItems, menu]
+  )
+  const handleItemMenuAction = useCallback(
+    (action: ItemMenuAction) => {
+      if (!menu) return
+      const id = menu.id
+      switch (action.type) {
+        case 'open':
+          void run(() => window.deskbox.openItem(id))
+          break
+        case 'reveal':
+          void run(() => window.deskbox.revealItem(id))
+          break
+        case 'copy':
+          void run(() => window.deskbox.copyItem(id))
+          break
+        case 'pin':
+          void run(() => window.deskbox.updateItem(id, { pinned: action.pinned }))
+          break
+        case 'move':
+          void run(() => window.deskbox.updateItem(id, { groupId: action.groupId }))
+          break
+        case 'remove':
+          void run(() => window.deskbox.removeItem(id))
+          break
+      }
+    },
+    [menu, run]
+  )
+
+  // 设置是「换一页」，菜单是挂在卡片上的临时浮层 —— 页面换了就别留着
+  useEffect(() => {
+    if (settingsOpen) setMenu(null)
+  }, [settingsOpen])
 
   /** 双击片段 → 只读预览弹窗；看完再决定要不要复制 */
   const [peekId, setPeekId] = useState<string | null>(null)
@@ -579,6 +623,21 @@ export default function App() {
             onHide={hideWindow}
           />
 
+          {/* 五段纵向节奏：标题栏 → 搜索/排序 → 分组胶囊 → 卡片网格 → Dock */}
+          <SearchBar
+            value={query}
+            onChange={setQuery}
+            inputRef={searchRef}
+            trailing={
+              <SortMenu
+                sortBy={state.settings.sortBy}
+                arranging={arranging}
+                onChange={changeSort}
+                onToggleArrange={toggleArrange}
+              />
+            }
+          />
+
           <GroupTabs
             groups={groups}
             counts={counts}
@@ -599,20 +658,6 @@ export default function App() {
             onDragStateChange={(active) => {
               groupDrag.current = active
             }}
-          />
-
-          <SearchBar
-            value={query}
-            onChange={setQuery}
-            inputRef={searchRef}
-            trailing={
-              <SortMenu
-                sortBy={state.settings.sortBy}
-                arranging={arranging}
-                onChange={changeSort}
-                onToggleArrange={toggleArrange}
-              />
-            }
           />
 
           {arranging && (
@@ -644,6 +689,10 @@ export default function App() {
                 onPickFolder={() => void run(() => window.deskbox.pickFolder())}
                 onAddLink={() => setSheet('link')}
                 onAddText={() => setSheet('text')}
+                onClearSearch={() => {
+                  setQuery('')
+                  searchRef.current?.focus()
+                }}
               />
             ) : (
               <ItemGrid
@@ -721,11 +770,27 @@ export default function App() {
         <TextPeek content={peekItem.target} onCopy={copyPeek} onClose={closePeek} />
       )}
 
+      {menu && menuItem && (
+        <ItemMenu
+          key={menu.id}
+          item={menuItem}
+          groups={groups}
+          counts={counts}
+          x={menu.x}
+          y={menu.y}
+          onAction={handleItemMenuAction}
+          onClose={closeItemMenu}
+        />
+      )}
+
       {toast && (
         <div key={toast.seq} className={`toast ${toast.tone === 'warn' ? 'is-warn' : ''}`}>
           {toast.text}
         </div>
       )}
+
+      {/* 全应用只此一个悬浮提示层：事件委托在 document 上，谁写了 data-tip 谁就能用 */}
+      <TooltipLayer />
     </div>
   )
 }

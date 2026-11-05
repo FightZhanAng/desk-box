@@ -6,15 +6,31 @@ interface Props {
   onPickFolder: () => void
   onAddLink: () => void
   onAddText: () => void
+  /** 搜索无结果时的出口：清空关键词回到全量列表 */
+  onClearSearch?: () => void
 }
 
-export function EmptyState({ searching, onPickFiles, onPickFolder, onAddLink, onAddText }: Props) {
+export function EmptyState({
+  searching,
+  onPickFiles,
+  onPickFolder,
+  onAddLink,
+  onAddText,
+  onClearSearch
+}: Props) {
   if (searching) {
     return (
       <div className="empty">
         <EmptyDrawerIcon className="empty__art" />
         <span className="empty__title">没找到匹配的东西</span>
-        <span className="empty__desc">换个关键词试试，或者清空搜索框看看全部。</span>
+        <span className="empty__desc">换个关键词，或清空搜索框看全部。</span>
+        {onClearSearch && (
+          <div className="empty__quick">
+            <button type="button" className="chip-btn" onClick={onClearSearch}>
+              清空搜索
+            </button>
+          </div>
+        )}
       </div>
     )
   }

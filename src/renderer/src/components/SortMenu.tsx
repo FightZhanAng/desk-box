@@ -48,7 +48,8 @@ export function SortMenu({ sortBy, arranging, onChange, onToggleArrange }: Props
         type="button"
         className={`sortbtn ${arranging ? 'is-on' : ''}`}
         onClick={() => setOpen((prev) => !prev)}
-        title={`排序：${SORT_LABELS[sortBy]}${arranging ? ' · 整理中' : ''}`}
+        aria-label={`排序：${SORT_LABELS[sortBy]}`}
+        data-tip={`排序：${SORT_LABELS[sortBy]}${arranging ? ' · 整理中' : ''}`}
       >
         <SortIcon />
       </button>
@@ -84,7 +85,7 @@ export function SortMenu({ sortBy, arranging, onChange, onToggleArrange }: Props
               onToggleArrange()
               setOpen(false)
             }}
-            title="进入后拖拽卡片调整顺序，退出恢复拖到资源管理器"
+            data-tip="进入后拖拽卡片调整顺序，退出恢复拖到资源管理器"
           >
             {/* 跟上面的排序项「手动整理」区分开：那个是「按我拖过的顺序显示」，
                 这个是「现在就开始拖」 */}

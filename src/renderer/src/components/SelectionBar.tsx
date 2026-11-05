@@ -43,21 +43,21 @@ export function SelectionBar({
       <span className="selectbar__count">已选 {count}</span>
 
       <div className="selectbar__actions">
-        <button type="button" className="selectbar__btn" onClick={onOpen} title="打开选中的文件、文件夹和链接">
+        <button type="button" className="selectbar__btn" onClick={onOpen} data-tip="打开选中的文件、文件夹和链接">
           打开
         </button>
         <button
           type="button"
           className="selectbar__btn"
           onClick={() => onPin(!pinned)}
-          title={pinned ? '取消固定' : '固定到最前'}
+          data-tip={pinned ? '取消固定' : '固定到最前'}
         >
           {pinned ? '取消固定' : '固定'}
         </button>
 
         {targets.length > 0 && (
           <div className="selectbar__menu">
-            <button type="button" className="selectbar__btn" title="把选中的条目整组移到另一个分组">
+            <button type="button" className="selectbar__btn" data-tip="把选中的条目整组移到另一个分组">
               移动
             </button>
             <div className="selectbar__menu-list">
@@ -70,18 +70,19 @@ export function SelectionBar({
           </div>
         )}
 
-        <button type="button" className="selectbar__btn is-danger" onClick={onRemove} title="从收纳盒移除记录（不动原文件）">
+        <button type="button" className="selectbar__btn is-danger" onClick={onRemove} data-tip="从收纳盒移除记录（不动原文件）">
           移除
         </button>
       </div>
 
       {count < total && (
-        <button type="button" className="selectbar__link" onClick={onSelectAll} title="选中当前列表里的全部条目">
+        <button type="button" className="selectbar__link" onClick={onSelectAll} data-tip="选中当前列表里的全部条目">
           全选
         </button>
       )}
 
-      <button type="button" className="selectbar__close" onClick={onClear} title="取消选择（Esc）">
+      <button type="button" className="selectbar__close" onClick={onClear} aria-label="取消选择"
+        data-tip="取消选择（Esc）">
         <CloseIcon />
       </button>
     </div>

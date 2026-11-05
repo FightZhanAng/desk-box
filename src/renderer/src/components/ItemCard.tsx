@@ -2,6 +2,7 @@ import type { ItemView } from '@shared/types'
 import { hostOf } from '@shared/url'
 import { INTERNAL_ITEM_TYPE } from '../lib/dnd'
 import { ItemGlyph } from './ItemGlyph'
+import { PinIcon } from './icons'
 import { useRealIcon } from './useRealIcon'
 
 function metaOf(item: ItemView): string {
@@ -25,7 +26,8 @@ interface Props {
   onOpen: () => void
   /** 片段（text）双击时触发：弹窗预览全文 */
   onPreview: () => void
-  onMenu: () => void
+  /** 右键菜单：把光标位置一起带出去，菜单要贴着鼠标弹 */
+  onMenu: (x: number, y: number) => void
   onDragBegin: () => void
   onDragEnd: () => void
   /** 整理模式下的拖拽排序回调 */
@@ -55,6 +57,17 @@ export function ItemCard({
   const draggable = arranging ? !item.pinned : canExport
   // 快捷方式 / 可执行文件显示系统原图标；拿不到就退回自绘矢量图
   const { url: realIcon, loading: iconLoading } = useRealIcon(item)
+  // 三段式悬浮提示的正文：片段只报字数，把整段文字铺进提示会糊满半个窗口
+  const tipSub = arranging
+    ? undefined
+    : item.kind === 'text'
+      ? `${item.target.replace(/\s+/g, ' ').trim().length} 字`
+      : item.target
+  const tipNote = arranging
+    ? item.pinned
+      ? '已固定，不参与排序'
+      : '拖拽调整顺序'
+    : `${item.kind === 'text' ? '双击预览' : '双击打开'} · 右键更多 · Ctrl/Shift 点击多选`
 
   return (
     <button
@@ -74,7 +87,7 @@ export function ItemCard({
       onDoubleClick={arranging ? undefined : item.kind === 'text' ? onPreview : onOpen}
       onContextMenu={(event) => {
         event.preventDefault()
-        onMenu()
+        onMenu(event.clientX, event.clientY)
       }}
       onDragStart={(event) => {
         if (arranging) {
@@ -111,14 +124,16 @@ export function ItemCard({
         }
         onDragEnd()
       }}
-      title={
-        arranging
-          ? item.pinned
-            ? `${item.title}\n已固定，不参与排序`
-            : `${item.title}\n拖拽调整顺序`
-          : `${item.title}\n${item.target}\n\n${item.kind === 'text' ? '双击预览' : '双击打开'} · 右键更多 · Ctrl/Shift 点击多选`
-      }
+      /* 三段式悬浮提示：标题 / 路径（片段只报字数，别把全文铺出来）/ 操作口诀 */
+      data-tip-title={item.title}
+      data-tip-sub={tipSub}
+      data-tip-note={tipNote}
     >
+      {item.pinned && (
+        <span className="tile__pin" aria-hidden="true">
+          <PinIcon />
+        </span>
+      )}
       <span className="tile__visual">
         {realIcon ? (
           <img className="glyph-img" src={realIcon} alt="" draggable={false} />

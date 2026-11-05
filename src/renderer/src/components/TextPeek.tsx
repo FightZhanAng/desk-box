@@ -53,7 +53,8 @@ export function TextPeek({ content, onCopy, onClose }: Props) {
             {count} 字 · {lines} 行
             {count !== content.length && ` · 原文 ${content.length} 字符`}
           </span>
-          <button type="button" className="peek__close" onClick={onClose} title="关闭预览 (Esc)">
+          <button type="button" className="peek__close" onClick={onClose} aria-label="关闭预览"
+            data-tip="关闭预览（Esc）">
             <svg viewBox="0 0 24 24" aria-hidden="true">
               <path d="M6.5 6.5l11 11M17.5 6.5l-11 11" />
             </svg>

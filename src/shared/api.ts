@@ -34,9 +34,13 @@ export interface DeskboxApi {
    */
   reorderItems(ids: string[]): Promise<ActionResult>
 
-  /** 弹出原生右键菜单；无返回值，菜单走主进程 */
+  /**
+   * 原生右键菜单（系统样式），不再由渲染层调用 —— 界面现在用自绘的
+   * ItemMenu，才能跟上玻璃面板。留在这里当兜底：万一自绘菜单在某个
+   * 环境里出问题，把它接回去就能用。
+   */
   showItemMenu(id: string): void
-  /** 多选状态下的右键菜单：菜单项作用于整组，单条时主进程会自动退回单条菜单 */
+  /** 同上，批量版本；渲染层目前也没在用 */
   showBatchMenu(ids: string[]): void
   /** 把条目拖到资源管理器 / 其他程序。只在 dragstart 里同步调用有效 */
   startDrag(id: string): void

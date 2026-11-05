@@ -264,7 +264,7 @@ export function GroupTabs({
             ref={setPillRef('__freq__')}
             className={`group-pill group-pill--freq ${active === FREQUENT_ID ? 'is-active' : ''}`}
             onClick={() => onSelect(FREQUENT_ID)}
-            title="打开次数最多的 10 项，跨所有分组聚合"
+            data-tip="打开次数最多的 10 项，跨所有分组聚合"
           >
             常用
             <span className="group-pill__count">{frequentCount}</span>
@@ -341,7 +341,7 @@ export function GroupTabs({
                   y: Math.min(event.clientY, window.innerHeight - 150)
                 })
               }}
-              title="拖拽换位 · 双击重命名 · 右键更多"
+              data-tip="拖拽换位 · 双击重命名 · 右键更多"
             >
               {group.name}
               {(counts.get(group.id) ?? 0) > 0 && (
@@ -360,7 +360,7 @@ export function GroupTabs({
                 active && hiddenGroups.some((group) => group.id === active) ? 'is-active' : ''
               }`}
               onClick={toggleMore}
-              title="更多分组"
+              data-tip="更多分组"
             >
               更多
               <span className="group-pill__count">{hiddenGroups.length}</span>
@@ -393,7 +393,8 @@ export function GroupTabs({
             ref={setPillRef('__add__')}
             className="group-add"
             onClick={() => setCreating(true)}
-            title="新建分组"
+            aria-label="新建分组"
+            data-tip="新建分组"
           >
             <PlusIcon />
           </button>

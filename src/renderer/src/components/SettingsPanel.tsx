@@ -98,7 +98,7 @@ function UpdateCard({
         <div className="update-card__version">v{update.current || '—'}</div>
         <div
           className={`update-card__status ${alert ? 'is-alert' : ''}`}
-          title={update.message || update.notes || undefined}
+          data-tip={update.message || update.notes || undefined}
         >
           {updateStatusText(update)}
         </div>
@@ -217,7 +217,8 @@ export function SettingsPanel({
     <section className="settings">
       <header className="settings__head">
         <span className="settings__title">设置</span>
-        <button type="button" className="icon-btn" onClick={onClose} title="关闭">
+        <button type="button" className="icon-btn" onClick={onClose} aria-label="关闭设置"
+          data-tip="关闭设置">
           <CloseIcon />
         </button>
       </header>
@@ -231,25 +232,14 @@ export function SettingsPanel({
               <button
                 key={id}
                 type="button"
-                className={`theme-card ${settings.theme === id ? 'is-active' : ''}`}
+                data-t={id}
+                className={`theme-chip ${settings.theme === id ? 'is-on' : ''}`}
                 onClick={() => onPatch({ theme: id })}
                 aria-pressed={settings.theme === id}
-                title={THEME_LABELS[id]}
+                data-tip={THEME_LABELS[id]}
               >
-                <span className="theme-card__preview" data-t={id}>
-                  <span className="theme-card__head">
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                  <span className="theme-card__grid">
-                    <i />
-                    <i />
-                    <i />
-                    <i />
-                  </span>
-                </span>
-                <span className="theme-card__name">{THEME_LABELS[id]}</span>
+                <i aria-hidden="true" />
+                {THEME_LABELS[id]}
               </button>
             ))}
           </div>
@@ -258,17 +248,17 @@ export function SettingsPanel({
             <div className="segment">
               <button
                 type="button"
-                className={settings.density === 'comfortable' ? 'is-active' : ''}
-                onClick={() => onPatch({ density: 'comfortable' })}
-              >
-                舒展
-              </button>
-              <button
-                type="button"
                 className={settings.density === 'compact' ? 'is-active' : ''}
                 onClick={() => onPatch({ density: 'compact' })}
               >
                 紧凑
+              </button>
+              <button
+                type="button"
+                className={settings.density === 'comfortable' ? 'is-active' : ''}
+                onClick={() => onPatch({ density: 'comfortable' })}
+              >
+                舒适
               </button>
             </div>
           </Row>

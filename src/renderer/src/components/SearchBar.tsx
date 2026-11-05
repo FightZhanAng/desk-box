@@ -8,22 +8,31 @@ interface Props {
   trailing?: React.ReactNode
 }
 
+/**
+ * 搜索 + 排序。
+ *
+ * 搜索是一个整颗胶囊（图标压在左侧、清空按钮压在右侧），排序按钮是胶囊外
+ * 独立的一颗圆钮 —— 跟设计稿一致：两者同高，但只有输入区有底。
+ */
 export function SearchBar({ value, onChange, inputRef, trailing }: Props) {
   return (
     <div className="searchbar">
-      <SearchIcon />
-      <input
-        ref={inputRef}
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        placeholder="搜索名称、路径或内容"
-        spellCheck={false}
-      />
-      {value && (
-        <button type="button" className="searchbar__clear" onClick={() => onChange('')} title="清空">
-          <CloseIcon />
-        </button>
-      )}
+      <label className="search">
+        <SearchIcon />
+        <input
+          ref={inputRef}
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="搜索名称、路径、备注，或拼音首字母"
+          spellCheck={false}
+        />
+        {value && (
+          <button type="button" className="search__clear" onClick={() => onChange('')} aria-label="清空搜索"
+              data-tip="清空搜索">
+            <CloseIcon />
+          </button>
+        )}
+      </label>
       {trailing}
     </div>
   )

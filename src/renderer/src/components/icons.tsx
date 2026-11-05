@@ -139,6 +139,15 @@ export function SortIcon({ className }: IconProps) {
   )
 }
 
+/** 子菜单指示：只有「移动到分组」这类会再弹一层的条目才用 */
+export function ChevronRightIcon({ className }: IconProps) {
+  return (
+    <svg {...base(className)}>
+      <path d="M9.8 6.6 15.2 12l-5.4 5.4" />
+    </svg>
+  )
+}
+
 /** 整理模式：两列小方块 + 双向箭头，跟「排序」区分开 */
 export function ArrangeIcon({ className }: IconProps) {
   return (

@@ -1,23 +1,13 @@
 import type { ItemView } from '@shared/types'
-import { hostOf } from '@shared/url'
 
 /**
  * 收纳项的图标。
  *
- * 文件和文件夹不再用系统图标（Windows 那套蓝黄文件夹跟这套界面完全不搭），
- * 改成按扩展名分组的矢量图形：统一的「纸张 + 折角」底形，中间压一个白色标记。
- * 链接和文本仍然用色块，但换成主题变量控制，深色主题下不会亮得刺眼。
+ * 文件和文件夹不用系统那套蓝黄图标，改成按扩展名分族的矢量图形：
+ * 统一的「纸张 + 折角」底形，中间压一个类型标记。
+ * 链接与片段是整块类型色，标记颜色由 --glyph-mark 决定 ——
+ * 浅色档是白，暗色档自动压成墨色，不用为每套主题单独画图。
  */
-
-const LINK_COLORS = ['#b5623a', '#7d6a9c', '#4f7d5b', '#3f6f8f', '#a8724b', '#8a5a6b']
-
-function seedColor(seed: string): string {
-  let hash = 0
-  for (let index = 0; index < seed.length; index += 1) {
-    hash = (hash * 31 + seed.charCodeAt(index)) >>> 0
-  }
-  return LINK_COLORS[hash % LINK_COLORS.length]
-}
 
 type FileKind = 'image' | 'doc' | 'sheet' | 'code' | 'archive' | 'media' | 'app' | 'file'
 
@@ -53,7 +43,7 @@ function PageShape() {
   )
 }
 
-/** 文件夹背板：带一个凸起的标签，整片用 55% 透明度，压上前片就有厚度 */
+/** 文件夹背板：带一个凸起的标签，整片 55% 透明度，压上前片就有厚度 */
 function FolderBack() {
   return (
     <path
@@ -74,62 +64,44 @@ function FolderFront() {
   )
 }
 
-/** 压在纸张下半部的白色类型标记 */
+/** 压在纸张下半部的类型标记；颜色统一交给 var(--glyph-mark) */
 function Mark({ kind }: { kind: FileKind }) {
   switch (kind) {
     case 'image':
       return (
         <>
-          <circle cx="12.2" cy="15.4" r="1.85" fill="#fff" />
-          <path d="M8.4 24.6 12.9 18.7l3 3.5 2.6-3 4.6 5.4z" fill="#fff" />
+          <circle className="glyph__fill" cx="12.2" cy="15.4" r="1.85" />
+          <path className="glyph__fill" d="M8.4 24.6 12.9 18.7l3 3.5 2.6-3 4.6 5.4z" />
         </>
       )
     case 'doc':
       return (
-        <path
-          d="M9.8 15.4h12.4M9.8 19h12.4M9.8 22.6h7.6"
-          stroke="#fff"
-          strokeWidth="1.65"
-          strokeLinecap="round"
-        />
+        <path className="glyph__stroke" strokeWidth="1.65" d="M9.8 15.4h12.4M9.8 19h12.4M9.8 22.6h7.6" />
       )
     case 'sheet':
       return (
         <>
-          <rect x="9.6" y="14.4" width="12.6" height="10" rx="1.3" stroke="#fff" strokeWidth="1.5" />
+          <rect className="glyph__stroke" strokeWidth="1.5" x="9.6" y="14.4" width="12.6" height="10" rx="1.3" />
           <path
-            d="M9.6 17.8h12.6M9.6 21h12.6M13.4 14.4v10M18 14.4v10"
-            stroke="#fff"
+            className="glyph__stroke"
             strokeWidth="1.1"
+            d="M9.6 17.8h12.6M9.6 21h12.6M13.4 14.4v10M18 14.4v10"
           />
         </>
       )
     case 'code':
       return (
         <>
-          <path
-            d="M13.5 15.2 9.9 19.4l3.6 4.2"
-            stroke="#fff"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
-          <path
-            d="M18.5 15.2l3.6 4.2-3.6 4.2"
-            stroke="#fff"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          />
+          <path className="glyph__stroke" strokeWidth="1.7" d="M13.5 15.2 9.9 19.4l3.6 4.2" />
+          <path className="glyph__stroke" strokeWidth="1.7" d="M18.5 15.2l3.6 4.2-3.6 4.2" />
         </>
       )
     case 'archive':
       // 前面试过「档案盒」（像软盘）和「拉链 + 方块」（像钥匙孔）。
       // 结论是细节越多越糊，最后只留一条竖着的白色拉链：白条 + 交错挖空的齿。
-      // 竖条本身就是很强的形状信号，压到 20px 也不会散。
       return (
         <>
-          <rect x="14.1" y="13.4" width="3.8" height="11.4" rx="1.4" fill="#fff" />
+          <rect className="glyph__fill" x="14.1" y="13.4" width="3.8" height="11.4" rx="1.4" />
           <rect x="14.4" y="15.2" width="1.5" height="1.7" rx="0.4" fill="currentColor" />
           <rect x="16.1" y="17.5" width="1.5" height="1.7" rx="0.4" fill="currentColor" />
           <rect x="14.4" y="19.8" width="1.5" height="1.7" rx="0.4" fill="currentColor" />
@@ -137,24 +109,17 @@ function Mark({ kind }: { kind: FileKind }) {
         </>
       )
     case 'media':
-      return <path d="M13.4 14.4 20.4 19.4l-7 5z" fill="#fff" />
+      return <path className="glyph__fill" d="M13.4 14.4 20.4 19.4l-7 5z" />
     case 'app':
       return (
         <>
-          <rect x="9.4" y="14.2" width="13" height="10.2" rx="2.2" stroke="#fff" strokeWidth="1.5" />
-          <circle cx="12.4" cy="17.2" r="0.95" fill="#fff" />
-          <path d="M9.4 21.4h13" stroke="#fff" strokeWidth="1.1" />
+          <rect className="glyph__stroke" strokeWidth="1.5" x="9.4" y="14.2" width="13" height="10.2" rx="2.2" />
+          <circle className="glyph__fill" cx="12.4" cy="17.2" r="0.95" />
+          <path className="glyph__stroke" strokeWidth="1.1" d="M9.4 21.4h13" />
         </>
       )
     default:
-      return (
-        <path
-          d="M9.8 15.6h12.4M9.8 19.4h8.6"
-          stroke="#fff"
-          strokeWidth="1.6"
-          strokeLinecap="round"
-        />
-      )
+      return <path className="glyph__stroke" strokeWidth="1.6" d="M9.8 15.6h12.4M9.8 19.4h8.6" />
   }
 }
 
@@ -187,14 +152,23 @@ function MissingGlyph({ folder }: { folder: boolean }) {
 export function ItemGlyph({ item }: { item: ItemView }) {
   if (item.kind === 'link') {
     return (
-      <span className="glyph-chip" style={{ background: seedColor(item.target) }}>
-        {(hostOf(item.target)[0] ?? 'L').toUpperCase()}
-      </span>
+      <svg className="glyph glyph--link" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="4" y="4" width="24" height="24" rx="7" fill="currentColor" />
+        <g className="glyph__stroke" strokeWidth="1.6">
+          <path d="M13 19a3 3 0 0 0 4.3 0l2.2-2.2a3 3 0 0 0-4.3-4.3l-.9.9" />
+          <path d="M19 13a3 3 0 0 0-4.3 0l-2.2 2.2a3 3 0 0 0 4.3 4.3l.9-.9" />
+        </g>
+      </svg>
     )
   }
 
   if (item.kind === 'text') {
-    return <span className="glyph-chip is-text">{'\u201C'}</span>
+    return (
+      <svg className="glyph glyph--text" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="4" y="4" width="24" height="24" rx="7" fill="currentColor" />
+        <path className="glyph__stroke" strokeWidth="1.7" d="M10 12h12M10 16h9M10 20h6" />
+      </svg>
+    )
   }
 
   if (!item.exists) {
@@ -206,7 +180,7 @@ export function ItemGlyph({ item }: { item: ItemView }) {
       <svg className="glyph glyph--folder" viewBox="0 0 32 32" aria-hidden="true">
         <FolderBack />
         <FolderFront />
-        <path d="M3.4 13.4h25.2" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+        <path className="glyph__hair" d="M3.4 13.4h25.2" strokeWidth="1" />
       </svg>
     )
   }
@@ -218,12 +192,9 @@ export function ItemGlyph({ item }: { item: ItemView }) {
       <svg className="glyph glyph--folder glyph--shortcut" viewBox="0 0 32 32" aria-hidden="true">
         <FolderBack />
         <FolderFront />
-        <path d="M3.4 13.4h25.2" stroke="rgba(255,255,255,0.3)" strokeWidth="1" />
+        <path className="glyph__hair" d="M3.4 13.4h25.2" strokeWidth="1" />
         <circle className="glyph__badge" cx="23.6" cy="24" r="6.4" />
-        <path
-          className="glyph__badge-arrow"
-          d="M21 26.6 26.2 21.4M26.2 21.4h-3.6M26.2 21.4v3.6"
-        />
+        <path className="glyph__badge-arrow" d="M21 26.6 26.2 21.4M26.2 21.4h-3.6M26.2 21.4v3.6" />
       </svg>
     )
   }
@@ -232,7 +203,7 @@ export function ItemGlyph({ item }: { item: ItemView }) {
   return (
     <svg className={`glyph glyph--${kind}`} viewBox="0 0 32 32" aria-hidden="true">
       <PageShape />
-      <path d="M17.8 3.2 25 10.6h-5.4a1.8 1.8 0 0 1-1.8-1.8V3.2Z" fill="rgba(0,0,0,0.16)" />
+      <path d="M17.8 3.2 25 10.6h-5.4a1.8 1.8 0 0 1-1.8-1.8V3.2Z" className="glyph__fold" />
       <Mark kind={kind} />
     </svg>
   )

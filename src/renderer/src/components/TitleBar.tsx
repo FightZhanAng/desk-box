@@ -13,7 +13,9 @@ interface Props {
 export function TitleBar({ pinned, total, hotkey, onTogglePin, onOpenSettings, onHide }: Props) {
   return (
     <header className="titlebar">
-      <DrawerIcon className="titlebar__mark" />
+      <span className="titlebar__mark">
+        <DrawerIcon />
+      </span>
       <div className="titlebar__text">
         <span className="titlebar__name">收纳盒</span>
         <span className="titlebar__hint">
@@ -26,14 +28,17 @@ export function TitleBar({ pinned, total, hotkey, onTogglePin, onOpenSettings, o
           type="button"
           className={`icon-btn ${pinned ? 'is-on' : ''}`}
           onClick={onTogglePin}
-          title={pinned ? '取消始终置顶' : '始终置顶'}
+          aria-label={pinned ? '取消始终置顶' : '始终置顶'}
+          data-tip={pinned ? '取消始终置顶' : '始终置顶'}
         >
           <PinIcon />
         </button>
-        <button type="button" className="icon-btn" onClick={onOpenSettings} title="设置">
+        <button type="button" className="icon-btn" onClick={onOpenSettings} aria-label="设置"
+          data-tip="设置">
           <GearIcon />
         </button>
-        <button type="button" className="icon-btn" onClick={onHide} title="收到托盘（Esc）">
+        <button type="button" className="icon-btn" onClick={onHide} aria-label="收到托盘"
+          data-tip="收到托盘（Esc）">
           <MinusIcon />
         </button>
       </div>
