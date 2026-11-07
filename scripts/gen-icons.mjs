@@ -5,7 +5,8 @@
  *   resources/icon.png          256×256 应用图标
  *   resources/icon.ico          多尺寸 Windows 图标（16/24/32/48/64/128/256）
  *   resources/icon.icns         macOS 图标
- *   resources/tray/tray.png     32×32 托盘图标
+ *   resources/tray/tray.png     32×32 托盘图标（macOS / 兜底）
+ *   resources/tray/tray.ico     多尺寸 Windows 托盘图标（16/20/24/32/40/48/64）
  *
  * 为什么自己写 PNG / ICO / ICNS：
  * electron-builder 默认用它的 WASM 图标工具做 png→ico/icns 转换，
@@ -210,19 +211,48 @@ function drawAppIcon(size) {
   return canvas
 }
 
-/** 托盘图标：深色主体 + 白描边，浅色和深色任务栏上都看得见 */
+/**
+ * 托盘图标：木色抽屉的扁平版。
+ *
+ * 托盘在每个 DPI 档要用不同的像素尺寸出图（100% → 16px，125% → 20px，150% → 24px），
+ * 所以这套几何画在 16×16 的网格上再按 size/16 吸附到整数像素：边全部落在像素
+ * 边界上，16px 下不会被抗锯齿抹成一片灰。描边宽度单独取整，免得内框被吸附成
+ * 一边 2px 一边 1px。
+ *
+ * 为什么不用单色：16px 里只剩十来个像素可用，「深色方块 + 白色横条」缩下去
+ * 更像一张卡片或一段文字，认不出是抽屉；木色边框和内芯的明度差在小尺寸下
+ * 反而更稳，也和应用图标是同一个记号。
+ */
 function drawTrayIcon(size) {
   const canvas = createCanvas(size)
-  const u = (value) => (value * size) / 256
+  const k = size / 16
+  const snap = (value) => Math.round(value * k)
 
-  // 白描边底
-  fillRoundRect(canvas, u(18), u(36), u(238), u(220), u(38), () => [255, 255, 255])
-  // 主体
-  fillRoundRect(canvas, u(26), u(44), u(230), u(212), u(32), () => [56, 48, 40])
-  // 缝（负形）
-  fillRoundRect(canvas, u(42), u(110), u(214), u(124), u(7), () => [255, 255, 255])
-  // 把手（负形）
-  fillRoundRect(canvas, u(94), u(146), u(162), u(166), u(10), () => [255, 255, 255])
+  // 外边距和描边共用同一个整数单位：分别按 snap() 取会一边 3px 一边 2px，
+  // 24 / 40 这些非整数倍档位会明显偏到右下角
+  const unit = Math.max(1, Math.round(k))
+  const x0 = unit
+  const y0 = unit
+  const x1 = size - unit
+  const y1 = size - unit
+  const rim = unit
+
+  // 盒体：深木色描边
+  fillRoundRect(canvas, x0, y0, x1, y1, snap(2.5), () => [92, 60, 35])
+  // 抽屉面板：浅木色，圆角跟外框同圆心，看起来才像一层壳
+  fillRoundRect(canvas, x0 + rim, y0 + rim, x1 - rim, y1 - rim, Math.max(1, snap(2.5) - rim), () => [
+    198, 150, 104
+  ])
+  // 把手：略低于面板中线，读起来才像抽屉拉手而不是开关
+  fillRoundRect(
+    canvas,
+    snap(5.5),
+    snap(8.2),
+    snap(10.5),
+    snap(10.2),
+    snap(0.7),
+    () => [74, 47, 26]
+  )
 
   return canvas
 }
@@ -302,6 +332,19 @@ writeFileSync(
 )
 writeFileSync(join(ROOT, 'resources', 'tray', 'tray.png'), toPNG(drawTrayIcon(32)))
 
+/**
+ * Windows 托盘另给一份多尺寸 .ico。
+ * Electron 拿到 .ico 会交给系统 LoadImage(IMAGE_ICON, SM_CXSMICON)，由 Windows
+ * 按当前 DPI 挑最接近的那一档，1:1 出图；喂 png 则只是「位图转 HICON」，
+ * 16px 的图在 125% 缩放下被任务栏硬拉到 20px —— 那才是图标发糊的来源。
+ * 档位覆盖 100/125/150/200/250/300/400%，外加取整误差里最常被挑中的 20。
+ */
+const TRAY_ICO_SIZES = [16, 20, 24, 32, 40, 48, 64]
+writeFileSync(
+  join(ROOT, 'resources', 'tray', 'tray.ico'),
+  buildICO(TRAY_ICO_SIZES.map((size) => ({ size, png: toPNG(drawTrayIcon(size)) })))
+)
+
 // 调试用：ICON_PREVIEW=1 时把 16/24/32/48 的原尺寸结果最近邻放大，方便肉眼查小图可读性
 if (process.env.ICON_PREVIEW) {
   const pixelate = (source, factor) => {
@@ -323,8 +366,30 @@ if (process.env.ICON_PREVIEW) {
       toPNG(pixelate(drawAppIcon(size), Math.round(256 / size)))
     )
   }
-  // 托盘按真实显示尺寸 16px 预览，源图 32px 好看不代表缩下去还在
-  writeFileSync(join(ROOT, 'resources', '.preview-tray.png'), toPNG(pixelate(drawTrayIcon(16), 16)))
+
+  // 托盘要按各 DPI 档的真实像素尺寸预览，并且铺在浅色 / 深色任务栏底色上看：
+  // 白描边在浅色背景上是隐形的，只看透明底会误判。
+  const onBackground = (icon, factor, bg) => {
+    const out = createCanvas(icon.size * factor)
+    for (let y = 0; y < out.size; y += 1) {
+      for (let x = 0; x < out.size; x += 1) {
+        blendPixel(out, x, y, bg, 1)
+        const si = (Math.floor(y / factor) * icon.size + Math.floor(x / factor)) * 4
+        const alpha = icon.px[si + 3] / 255
+        if (alpha > 0) blendPixel(out, x, y, [icon.px[si], icon.px[si + 1], icon.px[si + 2]], alpha)
+      }
+    }
+    return out
+  }
+  const BAR_BACKGROUNDS = { light: [243, 243, 243], dark: [32, 32, 32] }
+  for (const size of [16, 20, 24, 32]) {
+    for (const [tone, bg] of Object.entries(BAR_BACKGROUNDS)) {
+      writeFileSync(
+        join(ROOT, 'resources', `.preview-tray-${size}-${tone}.png`),
+        toPNG(onBackground(drawTrayIcon(size), Math.round(320 / size), bg))
+      )
+    }
+  }
 }
 
 console.log('[icons] 已生成 resources/icon.png · icon.ico · icon.icns · tray/tray.png')

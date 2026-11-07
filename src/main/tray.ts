@@ -17,7 +17,10 @@ function loadTrayImage(): Electron.NativeImage {
   if (image.isEmpty()) image = nativeImage.createFromPath(appIconPath())
   if (image.isEmpty()) image = nativeImage.createFromDataURL(FALLBACK_ICON)
 
-  // Windows 托盘按 16px 逻辑尺寸出图，给 32px 会被系统缩得很糊
+  // Windows 上别在这里 resize：托盘要的 HICON 由 Electron 按 SM_CXSMICON
+  // （150% 缩放时是 24px）向多尺寸 .ico 取，1:1 出图。手动缩到 16px 再交给系统
+  // 拉伸，就是 16→24 的插值糊。macOS 的托盘仍是逻辑 16pt，按原来的尺寸归一。
+  if (process.platform === 'win32') return image
   return image.resize({ width: 16, height: 16, quality: 'best' })
 }
 
